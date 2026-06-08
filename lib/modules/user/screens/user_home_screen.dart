@@ -9,6 +9,7 @@ import 'network_video_player.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:video_player/video_player.dart';
 import 'network_video_player.dart';
+
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
 
@@ -302,7 +303,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               );
             },
           ),
-            ],
+        ],
       ),
       body: StreamBuilder(
         stream: FirebaseDatabase.instance
@@ -345,38 +346,73 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   ),
                 );
               }
+              //
+              // Map<dynamic, dynamic> adsMap =
+              //     snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+
+              // List<Map<String, dynamic>> adsList = adsMap.entries
+              //     .map(
+              //       (e) => {'id': e.key, ...Map<String, dynamic>.from(e.value)},
+              //     )
+              //     .where((ad) {
+              //       // If user location not available show all ads
+              //       if (userLat == null || userLng == null) return true;
+              //
+              //       // If ad has no location show it
+              //       if (ad['latitude'] == null || ad['longitude'] == null) {
+              //         return true;
+              //       }
+              //
+              //       double adLat = (ad['latitude'] as num).toDouble();
+              //       double adLng = (ad['longitude'] as num).toDouble();
+              //
+              //       double distance = _calculateDistance(
+              //         userLat!,
+              //         userLng!,
+              //         adLat,
+              //         adLng,
+              //       );
+              //
+              //       // Show ads within 30km
+              //       // const double maxDistanceKm = 30;
+              //       // return distance <= maxDistanceKm;
+              //       //for all ads
+              //   return true;
+              //     })
+              //     .toList();
+
+              if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+                return const Center(child: Text("No Ads"));
+              }
 
               Map<dynamic, dynamic> adsMap =
                   snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+              List<Map<String, dynamic>> adsList = adsMap.entries.map((e) {
+                final ad = Map<String, dynamic>.from(e.value);
 
-              List<Map<String, dynamic>> adsList = adsMap.entries
-                  .map(
-                    (e) => {'id': e.key, ...Map<String, dynamic>.from(e.value)},
-                  )
-                  .where((ad) {
-                    // If user location not available show all ads
-                    if (userLat == null || userLng == null) return true;
+                double distance = 999999;
 
-                    // If ad has no location show it
-                    if (ad['latitude'] == null || ad['longitude'] == null) {
-                      return true;
-                    }
+                if (userLat != null &&
+                    userLng != null &&
+                    ad['latitude'] != null &&
+                    ad['longitude'] != null) {
+                  distance = _calculateDistance(
+                    userLat!,
+                    userLng!,
+                    (ad['latitude'] as num).toDouble(),
+                    (ad['longitude'] as num).toDouble(),
+                  );
+                }
 
-                    double adLat = (ad['latitude'] as num).toDouble();
-                    double adLng = (ad['longitude'] as num).toDouble();
+                ad['distance'] = distance;
 
-                    double distance = _calculateDistance(
-                      userLat!,
-                      userLng!,
-                      adLat,
-                      adLng,
-                    );
-
-                    // Show ads within 30km
-                    return distance <= 30;
-                  })
-                  .toList();
-
+                return ad;
+              }).toList();
+              adsList.sort((a, b) {
+                return (a['distance'] as double).compareTo(
+                  b['distance'] as double,
+                );
+              });
               if (adsList.isEmpty) {
                 return const Center(
                   child: Column(
@@ -397,37 +433,72 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 padding: const EdgeInsets.all(16),
                 itemCount: adsList.length,
                 itemBuilder: (context, index) {
-
                   final ad = adsList[index];
+                  // List<String> imageUrls = [];
+                  //
+                  //
+                  // if (ad['imageUrls'] != null) {
+                  //   if (ad['imageUrls'] is List) {
+                  //     imageUrls = List<String>.from(ad['imageUrls']);
+                  //   } else if (ad['imageUrls'] is Map) {
+                  //     imageUrls = Map<dynamic, dynamic>.from(ad['imageUrls'])
+                  //         .values
+                  //         .map((e) => e.toString())
+                  //         .toList();
+                  //   }
+                  // }
                   List<String> imageUrls = [];
-
+                  //multiple image
                   if (ad['imageUrls'] != null) {
                     if (ad['imageUrls'] is List) {
                       imageUrls = List<String>.from(ad['imageUrls']);
                     } else if (ad['imageUrls'] is Map) {
-                      imageUrls = Map<dynamic, dynamic>.from(ad['imageUrls'])
-                          .values
-                          .map((e) => e.toString())
-                          .toList();
+                      imageUrls = Map<dynamic, dynamic>.from(
+                        ad['imageUrls'],
+                      ).values.map((e) => e.toString()).toList();
                     }
                   }
+                  // Single image
+                  if (ad['imageUrl'] != null &&
+                      ad['imageUrl'].toString().isNotEmpty) {
+                    imageUrls.add(ad['imageUrl'].toString());
+                  }
 
+                  print("IMAGES = $imageUrls");
+                  print("TITLE = ${ad['title']}");
+                  print(
+                    "${(ad['distance'] as double).toStringAsFixed(1)} km away",
+                  );
+                  print("IMAGES = $imageUrls");
+                  print("VIDEO = ${ad['videoUrl']}");
+
+                  print("imageUrl = ${ad['imageUrl']}");
+                  print("imageUrls = ${ad['imageUrls']}");
+                  // if (ad['imageUrl'] != null &&
+                  //     ad['imageUrl'].toString().isNotEmpty) {
+                  //   imageUrls.add(ad['imageUrl'].toString());
+                  // }
+                  // imageUrls parse pannadha appuram add pannu
+                  //                   print('=== AD: ${ad['title']} ===');
+                  //                   print('imageUrls raw: ${ad['imageUrls']}');
+                  //                   print('imageUrls parsed: $imageUrls');
                   String? videoUrl = ad['videoUrl'];
-                  String imageUrl = '';
-
-                  if (ad['imageUrls'] != null) {
-                    if (ad['imageUrls'] is List) {
-                      final images = List<dynamic>.from(ad['imageUrls']);
-                      if (images.isNotEmpty) {
-                        imageUrl = images.first.toString();
-                      }
-                    } else if (ad['imageUrls'] is Map) {
-                      final images = Map<dynamic, dynamic>.from(ad['imageUrls']);
-                      if (images.isNotEmpty) {
-                        imageUrl = images.values.first.toString();
-                      }
-                    }
-                  }
+                  // String imageUrl = '';
+                  //
+                  // if (ad['imageUrls'] != null) {
+                  //   if (ad['imageUrls'] is List) {
+                  //     final images = List<dynamic>.from(ad['imageUrls']);
+                  //     if (images.isNotEmpty) {
+                  //       imageUrl = images.first.toString();
+                  //     }
+                  //   } else if (ad['imageUrls'] is Map) {
+                  //     final images = Map<dynamic, dynamic>.from(ad['imageUrls']);
+                  //     if (images.isNotEmpty) {
+                  //       imageUrl = images.values.first.toString();
+                  //     }
+                  //   }
+                  // }
+                  String imageUrl = ad['imageUrl']?.toString() ?? '';
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
@@ -474,35 +545,30 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                             ),
                             items: [
                               ...imageUrls.map(
-                                    (url) => Image.network(
+                                (url) => Image.network(
                                   url,
                                   width: double.infinity,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => Container(
                                     color: Colors.grey[200],
-                                    child: const Icon(
-                                      Icons.image,
-                                      size: 60,
-                                    ),
+                                    child: const Icon(Icons.image, size: 60),
                                   ),
                                 ),
                               ),
 
                               if (videoUrl != null && videoUrl.isNotEmpty)
-                                NetworkVideoPlayer(
-                                  videoUrl: videoUrl,
-                                ),
+                                NetworkVideoPlayer(videoUrl: videoUrl),
                             ],
                           ),
                         ),
                         if (ad['videoUrl'] != null &&
                             ad['videoUrl'].toString().isNotEmpty)
-                          // Padding(
-                          //   padding: const EdgeInsets.all(12),
-                          //   child: NetworkVideoPlayer(
-                          //     videoUrl: ad['videoUrl'].toString(),
-                          //   ),
-                          // ),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            // child: NetworkVideoPlayer(
+                            //   videoUrl: ad['videoUrl'].toString(),
+                            // ),
+                          ),
                         Padding(
                           padding: const EdgeInsets.all(12),
                           child: Column(
@@ -516,6 +582,16 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                                 ),
                               ),
                               const SizedBox(height: 4),
+                              Text(
+                                ad['distance'] < 1
+                                    ? "${(ad['distance'] * 1000).toStringAsFixed(0)} m away"
+                                    : "${ad['distance'].toStringAsFixed(1)} km away",
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              SizedBox(height: 12),
                               Text(
                                 ad['description'] ?? '',
                                 style: const TextStyle(
