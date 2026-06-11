@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shop/modules/super_admin/screens/view_admins_screen.dart';
+import 'package:shop/modules/super_admin/screens/view_users_screen.dart';
 import 'package:shop/modules/user/screens/role_selection_screen.dart';
 import 'package:shop/modules/super_admin/screens/withdrawal_requests_screen.dart';
-import 'create_admin_screen.dart';
-
+import 'create_admin_screen.dart' ;
 class SuperAdminDashboard extends StatelessWidget {
   const SuperAdminDashboard({super.key});
 
@@ -110,6 +110,32 @@ class SuperAdminDashboard extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (_) => const WithdrawalRequestsScreen(),
+                  ),
+                );
+              },
+            ),
+            _actionButton(
+              icon: Icons.people,
+              label: 'View Users',
+              color: Colors.purple,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ViewUsersScreen(),
+                  ),
+                );
+              },
+            ),
+            _actionButton(
+              icon: Icons.store,
+              label: 'View Sellers',
+              color: Colors.purple,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ViewAdminsScreen(),
                   ),
                 );
               },

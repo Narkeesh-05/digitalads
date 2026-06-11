@@ -78,59 +78,107 @@ class _ViewAdminsScreenState extends State<ViewAdminsScreen> {
                     ),
                   ],
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    CircleAvatar(
-                      backgroundColor: Colors.orange.withOpacity(0.2),
-                      child: const Icon(Icons.store, color: Colors.orange),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Colors.orange.withOpacity(0.2),
+                          child: const Icon(Icons.store, color: Colors.orange),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                admin['name'] ?? '',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                admin['businessName'] ?? '',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                admin['email'] ?? '',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // IconButton(
+                        //   icon: const Icon(Icons.delete, color: Colors.red),
+                        //   onPressed: () async {
+                        //     await FirebaseDatabase.instance
+                        //         .ref('admins/${admin['uid']}')
+                        //         .remove();
+                        //     if (context.mounted) {
+                        //       ScaffoldMessenger.of(context).showSnackBar(
+                        //         const SnackBar(
+                        //           content: Text('Admin Deleted!'),
+                        //           backgroundColor: Colors.red,
+                        //         ),
+                        //       );
+                        //     }
+                        //   },
+                        // ),
+                        IconButton(
+                          icon: Icon(
+                            admin['status'] == 'inactive'
+                                ? Icons.check_circle
+                                : Icons.block,
+                            color: admin['status'] == 'inactive'
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                          onPressed: () async {
+                            final newStatus =
+                            admin['status'] == 'inactive'
+                                ? 'active'
+                                : 'inactive';
+
+                            await FirebaseDatabase.instance
+                                .ref('admins/${admin['uid']}/status')
+                                .set(newStatus);
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    newStatus == 'inactive'
+                                        ? 'Admin Deactivated'
+                                        : 'Admin Activated',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            admin['name'] ?? '',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            admin['businessName'] ?? '',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.orange,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            admin['email'] ?? '',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 4),
+
+                    Text(
+                      'Status: ${admin['status'] ?? 'active'}',
+                      style: TextStyle(
+                        color: admin['status'] == 'inactive'
+                            ? Colors.red
+                            : Colors.green,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () async {
-                        await FirebaseDatabase.instance
-                            .ref('admins/${admin['uid']}')
-                            .remove();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Admin Deleted!'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      },
-                    ),
+                    
                   ],
                 ),
               );

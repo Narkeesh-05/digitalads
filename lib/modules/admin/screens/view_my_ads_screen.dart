@@ -11,6 +11,8 @@ class ViewMyAdsScreen extends StatefulWidget {
 
 class _ViewMyAdsScreenState extends State<ViewMyAdsScreen> {
   final String _adminId = FirebaseAuth.instance.currentUser!.uid;
+  List<String> imageUrls = [];
+
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +84,43 @@ class _ViewMyAdsScreenState extends State<ViewMyAdsScreen> {
             itemCount: adsList.length,
             itemBuilder: (context, index) {
               final ad = adsList[index];
+              if (ad['imageUrls'] != null) {
+                if (ad['imageUrls'] is List) {
+                  imageUrls = List<String>.from(ad['imageUrls']);
+                } else if (ad['imageUrls'] is Map) {
+                  imageUrls = Map<dynamic, dynamic>.from(ad['imageUrls'])
+                      .values
+                      .map((e) => e.toString())
+                      .toList();
+                }
+              }
+
+// Multiple images
+              if (ad['imageUrls'] != null) {
+                if (ad['imageUrls'] is List) {
+                  imageUrls = List<String>.from(ad['imageUrls']);
+                } else if (ad['imageUrls'] is Map) {
+                  imageUrls = Map<dynamic, dynamic>.from(ad['imageUrls'])
+                      .values
+                      .map((e) => e.toString())
+                      .toList();
+                }
+              }
+
+// Single image
+              if (imageUrls.isEmpty &&
+                  ad['imageUrl'] != null &&
+                  ad['imageUrl'].toString().isNotEmpty) {
+                imageUrls.add(ad['imageUrl'].toString());
+              }
+
+//
+// // Single image
+//               if (imageUrls.isEmpty &&
+//                   ad['imageUrl'] != null &&
+//                   ad['imageUrl'].toString().isNotEmpty) {
+//                 imageUrls.add(ad['imageUrl'].toString());
+//               }
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -95,23 +134,45 @@ class _ViewMyAdsScreenState extends State<ViewMyAdsScreen> {
                     ),
                   ],
                 ),
+
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+
+                    // ClipRRect(
+                    //   borderRadius: const BorderRadius.vertical(
+                    //     top: Radius.circular(12),
+                    //   ),
+                    //
+                    //   child: Image.network(
+                    //     ad['imageUrl'] ?? '',
+                    //     width: double.infinity,
+                    //     height: 180,
+                    //     fit: BoxFit.cover,
+                    //     errorBuilder: (_, __, ___) => Container(
+                    //       height: 180,
+                    //       width: double.infinity,
+                    //       color: Colors.grey[200],
+                    //       child: const Icon(Icons.image, size: 60),
+                    //     ),
+                    //   ),
+                    // ),
+
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(12),
                       ),
-                      child: Image.network(
-                        ad['imageUrl'] ?? '',
+                      child: imageUrls.isNotEmpty
+                          ? Image.network(
+                        imageUrls.first,
                         width: double.infinity,
                         height: 180,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          height: 180,
-                          color: Colors.grey[200],
-                          child: const Icon(Icons.image, size: 60),
-                        ),
+                      )
+                          : Container(
+                        height: 180,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.image, size: 60),
                       ),
                     ),
                     Padding(

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shop/modules/user/screens/user_home_screen.dart';
 import 'package:shop/modules/user/screens/user_register_screen.dart';
 
+import '../../super_admin/screens/super_admin_dashboard.dart';
+
 class UserLoginScreen extends StatefulWidget {
   const UserLoginScreen({super.key});
 
@@ -40,36 +42,104 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     try {
       UserCredential userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+      //for only superadmins
+      print("UID = ${userCredential.user!.uid}");
 
       // Check if user exists in database
       final snapshot = await FirebaseDatabase.instance
           .ref('users/${userCredential.user!.uid}')
           .get();
 
+      print("SNAPSHOT EXISTS = ${snapshot.exists}");
+      print("DATA = ${snapshot.value}");
+      print(snapshot.value);
+      // if (snapshot.exists) {
+      //   if (mounted) {
+      //     Navigator.pushAndRemoveUntil(
+      //       context,
+      //       MaterialPageRoute(
+      //         builder: (_) => const UserHomeScreen(),
+      //       ),
+      //           (route) => false,
+      //     );
+      //   }
+      // }
       if (snapshot.exists) {
-        if (mounted) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const UserHomeScreen(),
-            ),
+        final userData = Map<String, dynamic>.from(snapshot.value as Map);
+        if (snapshot.exists) {
+          final userData = Map<String, dynamic>.from(snapshot.value as Map);
+
+          final status = userData['status'] ?? 'active';
+
+          if (status == 'inactive') {
+            await FirebaseAuth.instance.signOut();
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Your account has been deactivated'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+
+            return;
+          }
+
+          final role = userData['role'] ?? 'user';
+
+          print("ROLE = $role");
+
+          if (mounted) {
+            if (role == 'super_admin') {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const SuperAdminDashboard()),
                 (route) => false,
-          );
+              );
+            } else {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const UserHomeScreen()),
+                (route) => false,
+              );
+            }
+          }
         }
-      } else {
-        await FirebaseAuth.instance.signOut();
+        final role = userData['role'] ?? 'user';
+
+        print("ROLE = $role");
+
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('User not found!'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          if (role == 'super_admin') {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const SuperAdminDashboard()),
+              (route) => false,
+            );
+          } else {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const UserHomeScreen()),
+              (route) => false,
+            );
+          }
         }
       }
+      // else {
+      //   await FirebaseAuth.instance.signOut();
+      //   if (mounted) {
+      //     ScaffoldMessenger.of(context).showSnackBar(
+      //       const SnackBar(
+      //         content: Text('User not found!'),
+      //         backgroundColor: Colors.red,
+      //       ),
+      //     );
+      //   }
+      // }
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -88,10 +158,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.blue,
-        title: const Text(
-          'User Login',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text('User Login', style: TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
@@ -117,8 +184,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Email',
-                    prefixIcon:
-                    const Icon(Icons.email, color: Colors.blue),
+                    prefixIcon: const Icon(Icons.email, color: Colors.blue),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -134,8 +200,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    prefixIcon:
-                    const Icon(Icons.lock, color: Colors.blue),
+                    prefixIcon: const Icon(Icons.lock, color: Colors.blue),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -143,8 +208,8 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             : Icons.visibility,
                         color: Colors.blue,
                       ),
-                      onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -168,16 +233,15 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                       ),
                     ),
                     child: _isLoading
-                        ? const CircularProgressIndicator(
-                        color: Colors.white)
+                        ? const CircularProgressIndicator(color: Colors.white)
                         : const Text(
-                      'Login',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                            'Login',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 16),
