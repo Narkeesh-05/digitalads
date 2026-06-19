@@ -1,8 +1,7 @@
+import 'package:digitalads/modules/admin/screens/post_ad_screen.dart';
+import 'package:digitalads/modules/admin/screens/view_enquiries_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shop/modules/admin/screens/post_ad_screen.dart';
-import 'package:shop/modules/admin/screens/view_enquiries_screen.dart';
-import 'package:shop/modules/user/screens/role_selection_screen.dart';
 
 import 'view_my_ads_screen.dart';
 
@@ -19,23 +18,23 @@ class AdminDashboard extends StatelessWidget {
           'Business Admin Dashboard',
           style: TextStyle(color: Colors.white),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const RoleSelectionScreen(),
-                  ),
-                      (route) => false,
-                );
-              }
-            },
-          ),
-        ],
+        // actions: [
+        //   IconButton(
+        //     icon: const Icon(Icons.logout, color: Colors.white),
+        //     onPressed: () async {
+        //       await FirebaseAuth.instance.signOut();
+        //       if (context.mounted) {
+        //         Navigator.pushAndRemoveUntil(
+        //           context,
+        //           MaterialPageRoute(
+        //             builder: (_) => const RoleSelectionScreen(),
+        //           ),
+        //               (route) => false,
+        //         );
+        //       }
+        //     },
+        //   ),
+        // ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

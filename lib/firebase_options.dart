@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '31170742929',
     projectId: 'digitalads-84cb8',
     storageBucket: 'digitalads-84cb8.firebasestorage.app',
-    iosBundleId: 'com.example.shop',
+    iosBundleId: 'com.example.digitalads',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '31170742929',
     projectId: 'digitalads-84cb8',
     storageBucket: 'digitalads-84cb8.firebasestorage.app',
-    iosBundleId: 'com.example.shop',
+    iosBundleId: 'com.example.digitalads',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

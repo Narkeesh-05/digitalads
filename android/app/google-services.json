@@ -1,10 +1,30 @@
 {
   "project_info": {
     "project_number": "31170742929",
+    "firebase_url": "https://digitalads-84cb8-default-rtdb.firebaseio.com",
     "project_id": "digitalads-84cb8",
     "storage_bucket": "digitalads-84cb8.firebasestorage.app"
   },
   "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:31170742929:android:4116e91b4b3c72cb424d30",
+        "android_client_info": {
+          "package_name": "com.digitalads.digitalads"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAU8qxgPOquB9UVXJd7VLAVuHu8MAV8B3I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
     {
       "client_info": {
         "mobilesdk_app_id": "1:31170742929:android:80c5a8a4fbd77ea4424d30",

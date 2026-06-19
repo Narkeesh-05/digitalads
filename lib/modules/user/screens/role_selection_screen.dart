@@ -1,8 +1,9 @@
+import 'package:digitalads/modules/user/screens/user_login_screen.dart';
+import 'package:digitalads/modules/user/screens/user_register_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:shop/modules/admin/screens/admin_login_screen.dart';
-import 'package:shop/modules/super_admin/screens/super_admin_login_screen.dart';
-import 'package:shop/modules/user/screens/user_login_screen.dart';
-import 'package:shop/modules/user/screens/user_register_screen.dart';
+
+import '../../admin/screens/admin_login_screen.dart';
+import '../../super_admin/screens/super_admin_login_screen.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});

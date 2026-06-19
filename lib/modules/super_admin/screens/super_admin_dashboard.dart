@@ -1,146 +1,262 @@
+import 'package:digitalads/modules/super_admin/screens/view_admins_screen.dart';
+import 'package:digitalads/modules/super_admin/screens/view_all_ads_screen.dart';
+import 'package:digitalads/modules/super_admin/screens/view_sellers_screen.dart';
+import 'package:digitalads/modules/super_admin/screens/view_users_screen.dart';
+import 'package:digitalads/modules/super_admin/screens/withdrawal_requests_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shop/modules/super_admin/screens/view_admins_screen.dart';
-import 'package:shop/modules/super_admin/screens/view_users_screen.dart';
-import 'package:shop/modules/user/screens/role_selection_screen.dart';
-import 'package:shop/modules/super_admin/screens/withdrawal_requests_screen.dart';
 import 'create_admin_screen.dart' ;
-class SuperAdminDashboard extends StatelessWidget {
+import 'package:firebase_database/firebase_database.dart';
+class SuperAdminDashboard extends StatefulWidget {
   const SuperAdminDashboard({super.key});
 
+
+  @override
+  State<SuperAdminDashboard> createState() => _SuperAdminDashboardState();
+}
+
+class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
+
+  int totalUsers = 0;
+  int totalSellers = 0;
+  int totalAdmins = 0;
+  int totalAds = 0;
+  @override
+  void initState() {
+    super.initState();
+    loadCounts();
+  }
+  Future<void> loadCounts() async {
+    // USERS
+    final usersSnapshot =
+    await FirebaseDatabase.instance.ref('users').get();
+
+    if (usersSnapshot.exists) {
+      final users =
+      Map<dynamic, dynamic>.from(usersSnapshot.value as Map);
+
+      totalUsers = users.values.where((user) {
+        final data = Map<String, dynamic>.from(user);
+        return data['accountType'] == 'normal';
+      }).length;
+
+      totalSellers = users.values.where((user) {
+        final data = Map<String, dynamic>.from(user);
+        return data['accountType'] == 'seller';
+      }).length;
+    }
+
+    // ADMINS
+    final adminSnapshot =
+    await FirebaseDatabase.instance.ref('admins').get();
+
+    if (adminSnapshot.exists) {
+      final admins =
+      Map<dynamic, dynamic>.from(adminSnapshot.value as Map);
+
+      totalAdmins = admins.length;
+    }
+
+    // ADS
+    final adsSnapshot =
+    await FirebaseDatabase.instance.ref('ads').get();
+
+    if (adsSnapshot.exists) {
+      final ads =
+      Map<dynamic, dynamic>.from(adsSnapshot.value as Map);
+
+      totalAds = ads.length;
+    }
+
+    setState(() {});
+  }
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         backgroundColor: Colors.purple,
+        centerTitle: true,
         title: const Text(
           'Digital Ads',
           style: TextStyle(color: Colors.white),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const RoleSelectionScreen(),
-                  ),
-                      (route) => false,
-                );
-              }
-            },
-          ),
-        ],
+        // actions: [
+        //   IconButton(
+        //     icon: const Icon(Icons.logout, color: Colors.white),
+        //     onPressed: () async {
+        //       await FirebaseAuth.instance.signOut();
+        //       if (context.mounted) {
+        //         Navigator.pushAndRemoveUntil(
+        //           context,
+        //           MaterialPageRoute(
+        //             builder: (_) => const RoleSelectionScreen(),
+        //           ),
+        //               (route) => false,
+        //         );
+        //       }
+        //     },
+        //   ),
+        // ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Welcome, Super Admin! 👑',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.purple,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _statCard(
-                  icon: Icons.store,
-                  label: 'Business Admins',
-                  count: '0',
-                  color: Colors.orange,
+                const Text(
+                  'Welcome, Super Admin! 👑',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.purple,
+                  ),
                 ),
-                const SizedBox(width: 16),
-                _statCard(
+                const SizedBox(height: 24),
+                // Row(
+                //   children: [
+                //     _statCard(
+                //       icon: Icons.store,
+                //       label: 'Business Admins',
+                //       count: '0',
+                //       color: Colors.orange,
+                //     ),
+                //     const SizedBox(width: 16),
+                //     _statCard(
+                //       icon: Icons.people,
+                //       label: 'Total Users',
+                //       count: '0',
+                //       color: Colors.blue,
+                //     ),
+                //   ],
+                // ),
+                Row(
+                  children: [
+                    _statCard(
+                      icon: Icons.store,
+                      label: 'Business Admins',
+                      count: totalAdmins.toString(),
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(width: 16),
+                    _statCard(
+                      icon: Icons.people,
+                      label: 'Users',
+                      count: totalUsers.toString(),
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                    
+                Row(
+                  children: [
+                    _statCard(
+                      icon: Icons.shopping_bag,
+                      label: 'Sellers',
+                      count: totalSellers.toString(),
+                      color: Colors.green,
+                    ),
+                    const SizedBox(width: 16),
+                    _statCard(
+                      icon: Icons.campaign,
+                      label: 'Ads',
+                      count: totalAds.toString(),
+                      color: Colors.red,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Quick Actions',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                    
+                const SizedBox(height: 16),
+                _actionButton(
+                  icon: Icons.person_add,
+                  label: 'Create Business Admin',
+                  color: Colors.purple,
+                  onTap: () {Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CreateAdminScreen(),
+                    ),
+                  );},
+                ),
+                const SizedBox(height: 12),
+                _actionButton(
+                  icon: Icons.list,
+                  label: 'View All Business Admins',
+                  color: Colors.purple,
+                  onTap: () { Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ViewAdminsScreen(),
+                    ),
+                  );},
+                ),
+                const SizedBox(height: 12),
+                _actionButton(
+                  icon: Icons.account_balance_wallet,
+                  label: 'Withdrawal Requests',
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const WithdrawalRequestsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _actionButton(
                   icon: Icons.people,
-                  label: 'Total Users',
-                  count: '0',
-                  color: Colors.blue,
+                  label: 'View Users',
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ViewUsersScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _actionButton(
+                  icon: Icons.store,
+                  label: 'View Sellers',
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ViewSellersScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _actionButton(
+                  icon: Icons.campaign,
+                  label: 'View All Ads',
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ViewAllAdsScreen(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Quick Actions',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 16),
-            _actionButton(
-              icon: Icons.person_add,
-              label: 'Create Business Admin',
-              color: Colors.purple,
-              onTap: () {Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const CreateAdminScreen(),
-                ),
-              );},
-            ),
-            const SizedBox(height: 12),
-            _actionButton(
-              icon: Icons.list,
-              label: 'View All Business Admins',
-              color: Colors.purple,
-              onTap: () { Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const ViewAdminsScreen(),
-                ),
-              );},
-            ),
-            const SizedBox(height: 12),
-            _actionButton(
-              icon: Icons.account_balance_wallet,
-              label: 'Withdrawal Requests',
-              color: Colors.purple,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const WithdrawalRequestsScreen(),
-                  ),
-                );
-              },
-            ),
-            _actionButton(
-              icon: Icons.people,
-              label: 'View Users',
-              color: Colors.purple,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ViewUsersScreen(),
-                  ),
-                );
-              },
-            ),
-            _actionButton(
-              icon: Icons.store,
-              label: 'View Sellers',
-              color: Colors.purple,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ViewAdminsScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );

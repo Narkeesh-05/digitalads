@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 
+import '../../../core/widgets/confirm_dialog.dart';
+import 'admin_ads_screen.dart';
+
 class ViewAdminsScreen extends StatefulWidget {
   const ViewAdminsScreen({super.key});
 
@@ -117,58 +120,142 @@ class _ViewAdminsScreenState extends State<ViewAdminsScreen> {
                             ],
                           ),
                         ),
-                        // IconButton(
-                        //   icon: const Icon(Icons.delete, color: Colors.red),
-                        //   onPressed: () async {
-                        //     await FirebaseDatabase.instance
-                        //         .ref('admins/${admin['uid']}')
-                        //         .remove();
-                        //     if (context.mounted) {
-                        //       ScaffoldMessenger.of(context).showSnackBar(
-                        //         const SnackBar(
-                        //           content: Text('Admin Deleted!'),
-                        //           backgroundColor: Colors.red,
-                        //         ),
-                        //       );
-                        //     }
-                        //   },
-                        // ),
-                        IconButton(
-                          icon: Icon(
-                            admin['status'] == 'inactive'
-                                ? Icons.check_circle
-                                : Icons.block,
-                            color: admin['status'] == 'inactive'
-                                ? Colors.green
-                                : Colors.red,
-                          ),
-                          onPressed: () async {
-                            final newStatus =
-                            admin['status'] == 'inactive'
-                                ? 'active'
-                                : 'inactive';
 
-                            await FirebaseDatabase.instance
-                                .ref('admins/${admin['uid']}/status')
-                                .set(newStatus);
-
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    newStatus == 'inactive'
-                                        ? 'Admin Deactivated'
-                                        : 'Admin Activated',
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.visibility, color: Colors.blue),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => AdminAdsScreen(
+                                      adminId: admin['uid'],
+                                      adminName: admin['name'] ?? '',
+                                    ),
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                        ),
+                                );
+                              },
+                            ),
+                            // IconButton(
+                            //   icon: Icon(
+                            //     admin['status'] == 'inactive'
+                            //         ? Icons.check_circle
+                            //         : Icons.block,
+                            //     color: admin['status'] == 'inactive'
+                            //         ? Colors.green
+                            //         : Colors.red,
+                            //   ),
+                            // onPressed: () async {
+                            //     final isInactive = admin['status'] == 'inactive';
+                            //     bool confirm = await showConfirmDialog(
+                            //       context,
+                            //       title: isInactive
+                            //           ? 'Activate Admin'
+                            //           : 'Deactivate Admin',
+                            //       message: isInactive
+                            //           ? 'Are you sure you want to activate this business admin?'
+                            //           : 'Are you sure you want to deactivate this business admin?',
+                            //     );
+                            //     if (!confirm) return;
+                            //     final newStatus =
+                            //     isInactive ? 'active' : 'inactive';
+                            //     await FirebaseDatabase.instance
+                            //         .ref('admins/${admin['uid']}/status')
+                            //         .set(newStatus);
+                            //     if (mounted) {
+                            //       ScaffoldMessenger.of(context).showSnackBar(
+                            //         SnackBar(
+                            //           content: Text(
+                            //             isInactive
+                            //                 ? 'Business Admin Activated'
+                            //                 : 'Business Admin Deactivated',
+                            //           ),
+                            //           backgroundColor:
+                            //           isInactive ? Colors.green : Colors.orange,
+                            //         ),
+                            //       );
+                            //     }
+                            //   },
+                            // ),
+
+                            PopupMenuButton<String>(
+                              onSelected: (value) async {
+
+                                if (value == 'activate') {
+                                  bool confirm = await showConfirmDialog(
+                                    context,
+                                    title: 'Activate Admin',
+                                    message:
+                                    'Are you sure you want to activate this business admin?',
+                                  );
+
+                                  if (!confirm) return;
+
+                                  await FirebaseDatabase.instance
+                                      .ref('admins/${admin['uid']}/status')
+                                      .set('active');
+
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Business Admin Activated'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  }
+                                }
+
+                                if (value == 'deactivate') {
+                                  bool confirm = await showConfirmDialog(
+                                    context,
+                                    title: 'Deactivate Admin',
+                                    message:
+                                    'Are you sure you want to deactivate this business admin?',
+                                  );
+
+                                  if (!confirm) return;
+
+                                  await FirebaseDatabase.instance
+                                      .ref('admins/${admin['uid']}/status')
+                                      .set('inactive');
+
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Business Admin Deactivated'),
+                                        backgroundColor: Colors.orange,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+
+                              itemBuilder: (context) {
+                                final isInactive =
+                                    (admin['status'] ?? 'active') == 'inactive';
+
+                                return [
+                                  if (isInactive)
+                                    const PopupMenuItem(
+                                      value: 'activate',
+                                      child: Text('Activate'),
+                                    ),
+
+                                  if (!isInactive)
+                                    const PopupMenuItem(
+                                      value: 'deactivate',
+                                      child: Text('Deactivate'),
+                                    ),
+                                ];
+                              },
+                            ),
+                          ],
+                        )
                       ],
                     ),
                     const SizedBox(height: 4),
-
                     Text(
                       'Status: ${admin['status'] ?? 'active'}',
                       style: TextStyle(
@@ -178,7 +265,6 @@ class _ViewAdminsScreenState extends State<ViewAdminsScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    
                   ],
                 ),
               );

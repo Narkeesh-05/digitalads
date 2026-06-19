@@ -1,12 +1,13 @@
+import 'package:digitalads/modules/user/screens/user_login_screen.dart';
+import 'package:digitalads/modules/user/screens/wallet_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:shop/modules/admin/screens/post_ad_screen.dart';
-import 'package:shop/modules/admin/screens/view_enquiries_screen.dart';
-import 'package:shop/modules/admin/screens/view_my_ads_screen.dart';
-import 'package:shop/modules/user/screens/role_selection_screen.dart';
-import 'package:shop/modules/user/screens/wallet_screen.dart';
 
+import '../../../app/theme.dart';
+import '../../admin/screens/post_ad_screen.dart';
+import '../../admin/screens/view_enquiries_screen.dart';
+import '../../admin/screens/view_my_ads_screen.dart';
 class UserDrawer extends StatefulWidget {
   const UserDrawer({super.key});
 
@@ -45,7 +46,7 @@ class _UserDrawerState extends State<UserDrawer> {
       child: Column(
         children: [
           UserAccountsDrawerHeader(
-            decoration: const BoxDecoration(color: Colors.blue),
+            decoration:   BoxDecoration(color:  AppColors.primary,),
             accountName: Text(
               _name,
               style: const TextStyle(
@@ -54,7 +55,7 @@ class _UserDrawerState extends State<UserDrawer> {
               ),
             ),
             accountEmail: Text(
-              _accountType == 'seller' ? '🏪 Seller' : '👤 Normal User',
+              _accountType == 'seller' ? '🏪 Seller' : ' Normal User',
             ),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
@@ -63,18 +64,18 @@ class _UserDrawerState extends State<UserDrawer> {
                 style: const TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue,
+                  color:  AppColors.primary,
                 ),
               ),
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.home, color: Colors.blue),
+            leading: const Icon(Icons.home, color:  AppColors.primary),
             title: const Text('Home'),
             onTap: () => Navigator.pop(context),
           ),
           ListTile(
-            leading: const Icon(Icons.wallet, color: Colors.blue),
+            leading: const Icon(Icons.wallet, color:  AppColors.primary),
             title: const Text('Wallet'),
             subtitle: Text('$_points Points'),
             onTap: () {
@@ -157,7 +158,7 @@ class _UserDrawerState extends State<UserDrawer> {
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const RoleSelectionScreen(),
+                    builder: (_) => const UserLoginScreen(),
                   ),
                       (route) => false,
                 );

@@ -1,7 +1,7 @@
+import 'package:digitalads/modules/user/screens/user_login_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:shop/modules/user/screens/user_login_screen.dart';
 
 class UserRegisterScreen extends StatefulWidget {
   const UserRegisterScreen({super.key});

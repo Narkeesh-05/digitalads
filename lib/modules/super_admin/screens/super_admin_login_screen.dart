@@ -1,6 +1,6 @@
+import 'package:digitalads/modules/super_admin/screens/super_admin_dashboard.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:shop/modules/super_admin/screens/super_admin_dashboard.dart';
 
 import 'bloc/super_admin_bloc.dart';
 import 'bloc/super_admin_event.dart';
