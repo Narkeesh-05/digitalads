@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../main.dart';
 import 'ad_search_delegate.dart';
 import 'network_video_player.dart';
 import 'package:carousel_slider/carousel_slider.dart';
@@ -343,8 +344,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      drawer: const UserDrawer(),
+
+      drawer:   UserDrawer( ),
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         elevation: 0,

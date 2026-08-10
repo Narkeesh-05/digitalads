@@ -16,7 +16,6 @@ class _WalletScreenState extends State<WalletScreen> {
   final _accountNumberController = TextEditingController();
   final _ifscController = TextEditingController();
   final _nameController = TextEditingController();
-  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -26,26 +25,64 @@ class _WalletScreenState extends State<WalletScreen> {
     super.dispose();
   }
 
+  InputDecoration _fieldDeco(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
+      filled: true,
+      fillColor: const Color(0xFFF4F5F9),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+    );
+  }
+
   Future<void> _requestWithdrawal(int points) async {
     if (points < 100) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Minimum 100 points required to withdraw!'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
         ),
       );
       return;
     }
 
+    _nameController.clear();
+    _accountNumberController.clear();
+    _ifscController.clear();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text(
-          '🏦 Bank Transfer',
-          style: TextStyle(
-            color: Colors.blue,
-            fontWeight: FontWeight.bold,
-          ),
+      builder: (dialogContext) => AlertDialog(
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primarySurface,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.account_balance_rounded,
+                  color: AppColors.primary, size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Bank Transfer',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -53,62 +90,47 @@ class _WalletScreenState extends State<WalletScreen> {
             children: [
               TextField(
                 controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Account Holder Name',
-                  prefixIcon: const Icon(Icons.person, color: Colors.blue),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                decoration:
+                _fieldDeco('Account Holder Name', Icons.person_outline),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               TextField(
                 controller: _accountNumberController,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Account Number',
-                  prefixIcon:
-                  const Icon(Icons.account_balance, color: Colors.blue),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                decoration: _fieldDeco(
+                    'Account Number', Icons.account_balance_outlined),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               TextField(
                 controller: _ifscController,
-                decoration: InputDecoration(
-                  labelText: 'IFSC Code',
-                  prefixIcon:
-                  const Icon(Icons.code, color: Colors.blue),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                textCapitalization: TextCapitalization.characters,
+                decoration: _fieldDeco('IFSC Code', Icons.code_rounded),
               ),
             ],
           ),
         ),
+        actionsPadding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () async {
-              if (_nameController.text.isEmpty ||
-                  _accountNumberController.text.isEmpty ||
-                  _ifscController.text.isEmpty) {
+              if (_nameController.text.trim().isEmpty ||
+                  _accountNumberController.text.trim().isEmpty ||
+                  _ifscController.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Please fill all fields!'),
-                    backgroundColor: Colors.red,
+                    backgroundColor: AppColors.error,
                   ),
                 );
                 return;
               }
 
-              // Save withdrawal request
               await FirebaseDatabase.instance
                   .ref('withdrawals')
                   .push()
@@ -118,34 +140,36 @@ class _WalletScreenState extends State<WalletScreen> {
                 'amount': points / 10,
                 'accountName': _nameController.text.trim(),
                 'accountNumber': _accountNumberController.text.trim(),
-                'ifscCode': _ifscController.text.trim(),
+                'ifscCode': _ifscController.text.trim().toUpperCase(),
                 'status': 'pending',
                 'createdAt': DateTime.now().toIso8601String(),
               });
 
-              // Reset points
               await FirebaseDatabase.instance
                   .ref('users/$_userId/points')
                   .set(0);
 
-              if (context.mounted) {
-                Navigator.pop(context);
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
+              }
+              if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text(
-                        '✅ Withdrawal Request Submitted!'),
-                    backgroundColor: Colors.green,
+                    content: Text('Withdrawal Request Submitted!'),
+                    backgroundColor: Color(0xFF1D9E75),
                   ),
                 );
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
-            child: const Text(
-              'Submit',
-              style: TextStyle(color: Colors.white),
-            ),
+            child: const Text('Submit'),
           ),
         ],
       ),
@@ -155,19 +179,18 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xFFF4F5F9),
       appBar: AppBar(
-        backgroundColor: Colors.blue,
+        backgroundColor: AppColors.primary,
+        elevation: 0,
         title: const Text(
           'My Wallet',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: StreamBuilder(
-        stream: FirebaseDatabase.instance
-            .ref('users/$_userId')
-            .onValue,
+        stream: FirebaseDatabase.instance.ref('users/$_userId').onValue,
         builder: (context, snapshot) {
           int points = 0;
           if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
@@ -177,121 +200,179 @@ class _WalletScreenState extends State<WalletScreen> {
           }
 
           double amount = points / 10;
+          bool canWithdraw = points >= 100;
 
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                // Points Card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.blue, Colors.blueAccent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(Icons.wallet, size: 50, color: Colors.white),
-                      const SizedBox(height: 12),
-                      Text(
-                        '$points Points',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '₹${amount.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 20,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '10 Points = ₹1',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 700;
+              return SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 40 : 16,
+                  vertical: 20,
                 ),
-                const SizedBox(height: 24),
-
-                // Minimum amount info
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: points >= 100
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: points >= 100 ? Colors.green : Colors.red,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isWide ? 560 : double.infinity,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        points >= 100
-                            ? Icons.check_circle
-                            : Icons.info_outline,
-                        color: points >= 100 ? Colors.green : Colors.red,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        points >= 100
-                            ? 'You can withdraw now!'
-                            : 'Need ${100 - points} more points to withdraw!',
-                        style: TextStyle(
-                          color: points >= 100 ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.w600,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildPointsCard(points, amount),
+                        const SizedBox(height: 20),
+                        _buildStatusBanner(canWithdraw, points),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: canWithdraw
+                                ? () => _requestWithdrawal(points)
+                                : null,
+                            icon: const Icon(Icons.account_balance_rounded,
+                                size: 20),
+                            label: const Text(
+                              'Withdraw to Bank',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: Colors.grey.shade300,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Withdraw Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: points >= 100
-                        ? () => _requestWithdrawal(points)
-                        : null,
-                    icon: const Icon(Icons.account_balance),
-                    label: const Text(
-                      'Withdraw to Bank',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:  AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                        const SizedBox(height: 24),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildPointsCard(int points, double amount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, Color(0xFF7A72D6)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(.25),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.account_balance_wallet_rounded,
+                size: 34, color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '$points Points',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '₹${amount.toStringAsFixed(2)}',
+            style: TextStyle(
+              color: Colors.white.withOpacity(.9),
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.15),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '10 Points = ₹1',
+              style: TextStyle(
+                color: Colors.white.withOpacity(.85),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBanner(bool canWithdraw, int points) {
+    final color = canWithdraw ? const Color(0xFF1D9E75) : Colors.orange;
+    final bgColor =
+    canWithdraw ? const Color(0xFFE3F6EF) : const Color(0xFFFFF3CD);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              canWithdraw
+                  ? Icons.check_circle_rounded
+                  : Icons.info_outline_rounded,
+              color: color,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              canWithdraw
+                  ? 'You can withdraw now!'
+                  : 'Need ${100 - points} more points to withdraw!',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 13.5,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
