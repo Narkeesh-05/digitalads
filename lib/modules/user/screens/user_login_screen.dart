@@ -26,6 +26,10 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
   bool _isOtpLoading = false;
   bool _obscurePassword = true;
 
+  // This screen is intentionally always light-styled (branded background +
+  // white card), regardless of the app's dark-mode setting elsewhere.
+  static const _fieldTextColor = Color(0xFF1A1A2E);
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -33,10 +37,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     _phoneController.dispose();
     super.dispose();
   }
-
-  // ============================================================
-  // SHOW MESSAGE
-  // ============================================================
 
   void _showMessage(String message, {bool success = false}) {
     if (!mounted) return;
@@ -56,10 +56,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       );
   }
 
-  // ============================================================
-  // SEND OTP
-  // ============================================================
-
   Future<void> _sendOtp() async {
     final phone = _phoneController.text.trim();
 
@@ -75,7 +71,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     try {
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: '+91$phone',
-
         verificationCompleted: (PhoneAuthCredential credential) async {
           try {
             await FirebaseAuth.instance.signInWithCredential(credential);
@@ -83,24 +78,18 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
             debugPrint('Auto verification error: $e');
           }
         },
-
         verificationFailed: (FirebaseAuthException e) {
           if (!mounted) return;
-
           setState(() {
             _isOtpLoading = false;
           });
-
           _showMessage(e.message ?? 'OTP verification failed');
         },
-
         codeSent: (String verificationId, int? resendToken) {
           if (!mounted) return;
-
           setState(() {
             _isOtpLoading = false;
           });
-
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -109,10 +98,8 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
             ),
           );
         },
-
         codeAutoRetrievalTimeout: (String verificationId) {
           if (!mounted) return;
-
           setState(() {
             _isOtpLoading = false;
           });
@@ -120,18 +107,12 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-
       setState(() {
         _isOtpLoading = false;
       });
-
       _showMessage('Unable to send OTP. Please try again.');
     }
   }
-
-  // ============================================================
-  // LOGIN
-  // ============================================================
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -147,10 +128,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     });
 
     try {
-      // --------------------------------------------------------
-      // FIREBASE AUTH
-      // --------------------------------------------------------
-
       final userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
@@ -162,94 +139,60 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       debugPrint('EMAIL: ${userCredential.user!.email}');
       debugPrint('================================');
 
-      // ========================================================
-      // 1. BUSINESS ADMIN
-      // ========================================================
-
-      final adminSnapshot = await FirebaseDatabase.instance
-          .ref('admins/$uid')
-          .get();
+      final adminSnapshot =
+      await FirebaseDatabase.instance.ref('admins/$uid').get();
 
       debugPrint('Admin exists: ${adminSnapshot.exists}');
 
       if (adminSnapshot.exists) {
-        final adminData = Map<String, dynamic>.from(adminSnapshot.value as Map);
+        final adminData =
+        Map<String, dynamic>.from(adminSnapshot.value as Map);
 
         debugPrint('ADMIN DATA: $adminData');
 
-        final status = (adminData['status'] ?? 'active')
-            .toString()
-            .toLowerCase();
-
-        // ------------------------------------------------------
-        // ADMIN INACTIVE
-        // ------------------------------------------------------
+        final status =
+        (adminData['status'] ?? 'active').toString().toLowerCase();
 
         if (status == 'inactive') {
           await FirebaseAuth.instance.signOut();
-
           _showMessage('Your business admin account has been deactivated.');
-
           return;
         }
-
-        // ------------------------------------------------------
-        // ADMIN HOME
-        // ------------------------------------------------------
 
         if (!mounted) return;
 
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const AdminHomeScreen()),
-          (route) => false,
+              (route) => false,
         );
 
         return;
       }
 
-      // ========================================================
-      // 2. USERS
-      // ========================================================
-
-      final userSnapshot = await FirebaseDatabase.instance
-          .ref('users/$uid')
-          .get();
+      final userSnapshot =
+      await FirebaseDatabase.instance.ref('users/$uid').get();
 
       debugPrint('User exists: ${userSnapshot.exists}');
 
       if (userSnapshot.exists) {
-        final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
+        final userData =
+        Map<String, dynamic>.from(userSnapshot.value as Map);
 
         debugPrint('USER DATA: $userData');
 
-        // ------------------------------------------------------
-        // ACCOUNT STATUS
-        // ------------------------------------------------------
-
-        final status = (userData['status'] ?? 'active')
-            .toString()
-            .toLowerCase();
+        final status =
+        (userData['status'] ?? 'active').toString().toLowerCase();
 
         if (status == 'inactive') {
           await FirebaseAuth.instance.signOut();
-
           _showMessage('Your account has been deactivated.');
-
           return;
         }
-
-        // ------------------------------------------------------
-        // ROLE
-        // ------------------------------------------------------
 
         final role = (userData['role'] ?? 'user').toString().toLowerCase();
 
         debugPrint('USER ROLE: $role');
-
-        // ======================================================
-        // SUPER ADMIN
-        // ======================================================
 
         if (role == 'super admin' || role == 'super_admin') {
           if (!mounted) return;
@@ -257,33 +200,24 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const SuperAdminDashboard()),
-            (route) => false,
+                (route) => false,
           );
 
           return;
         }
-
-        // ======================================================
-        // NORMAL USER / SELLER
-        // ======================================================
 
         if (!mounted) return;
 
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const UserHomeScreen()),
-          (route) => false,
+              (route) => false,
         );
 
         return;
       }
 
-      // ========================================================
-      // USER NOT FOUND
-      // ========================================================
-
       await FirebaseAuth.instance.signOut();
-
       _showMessage('User account details not found.');
     } on FirebaseAuthException catch (e) {
       debugPrint('Firebase Auth Error: ${e.code}');
@@ -294,24 +228,19 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
         case 'user-not-found':
           message = 'No account found with this email.';
           break;
-
         case 'wrong-password':
         case 'invalid-credential':
           message = 'Invalid email or password.';
           break;
-
         case 'invalid-email':
           message = 'Please enter a valid email address.';
           break;
-
         case 'user-disabled':
           message = 'This account has been disabled.';
           break;
-
         case 'too-many-requests':
           message = 'Too many attempts. Please try again later.';
           break;
-
         default:
           message = e.message ?? 'Login failed. Please try again.';
       }
@@ -319,7 +248,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       _showMessage(message);
     } catch (e) {
       debugPrint('Login error: $e');
-
       _showMessage('Something went wrong. Please try again.');
     } finally {
       if (mounted) {
@@ -330,10 +258,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     }
   }
 
-  // ============================================================
-  // INPUT DECORATION
-  // ============================================================
-
   InputDecoration _inputDecoration({
     required String label,
     required IconData icon,
@@ -341,6 +265,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
   }) {
     return InputDecoration(
       labelText: label,
+      labelStyle: const TextStyle(color: Color(0xFF85859B)),
       prefixIcon: Icon(icon, color: AppColors.primary),
       suffixIcon: suffixIcon,
       filled: true,
@@ -361,35 +286,20 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     );
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // ====================================================
-          // BACKGROUND
-          // ====================================================
           Positioned.fill(
             child: Image.asset(
               'assets/images/login_background.png',
               fit: BoxFit.cover,
             ),
           ),
-
-          // ====================================================
-          // OVERLAY
-          // ====================================================
           Positioned.fill(
             child: Container(color: Colors.black.withOpacity(.48)),
           ),
-
-          // ====================================================
-          // CONTENT
-          // ====================================================
           SafeArea(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -398,10 +308,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 20),
-
-                  // ==================================================
-                  // LOGO
-                  // ==================================================
                   Container(
                     width: 74,
                     height: 74,
@@ -422,9 +328,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                       color: Colors.white,
                     ),
                   ),
-
                   const SizedBox(height: 15),
-
                   const Text(
                     'DigitalAds',
                     style: TextStyle(
@@ -434,19 +338,12 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                       letterSpacing: -.5,
                     ),
                   ),
-
                   const SizedBox(height: 4),
-
                   const Text(
                     'Local ads, near you',
                     style: TextStyle(fontSize: 13, color: Colors.white70),
                   ),
-
                   const SizedBox(height: 38),
-
-                  // ==================================================
-                  // LOGIN CARD
-                  // ==================================================
                   Container(
                     width: double.infinity,
                     decoration: BoxDecoration(
@@ -472,9 +369,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             color: Color(0xFF1A1A2E),
                           ),
                         ),
-
                         const SizedBox(height: 5),
-
                         const Text(
                           'Sign in to continue to DigitalAds',
                           style: TextStyle(
@@ -482,31 +377,25 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             color: Color(0xFF777791),
                           ),
                         ),
-
                         const SizedBox(height: 25),
-
-                        // ==================================================
-                        // EMAIL
-                        // ==================================================
                         TextField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
                           textInputAction: TextInputAction.next,
+                          style: const TextStyle(color: _fieldTextColor),
+                          cursorColor: AppColors.primary,
                           decoration: _inputDecoration(
                             label: 'Email address',
                             icon: Icons.mail_outline_rounded,
                           ),
                         ),
-
                         const SizedBox(height: 15),
-
-                        // ==================================================
-                        // PASSWORD
-                        // ==================================================
                         TextField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
+                          style: const TextStyle(color: _fieldTextColor),
+                          cursorColor: AppColors.primary,
                           onSubmitted: (_) {
                             if (!_isLoading) {
                               _login();
@@ -530,10 +419,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                           ),
                         ),
-
-                        // ==================================================
-                        // FORGOT PASSWORD
-                        // ==================================================
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
@@ -558,12 +443,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 5),
-
-                        // ==================================================
-                        // LOGIN BUTTON
-                        // ==================================================
                         SizedBox(
                           width: double.infinity,
                           height: 52,
@@ -581,28 +461,23 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                             child: _isLoading
                                 ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
                                 : const Text(
-                                    'Sign in',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                              'Sign in',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
-
                         const SizedBox(height: 25),
-
-                        // ==================================================
-                        // DIVIDER
-                        // ==================================================
                         Row(
                           children: [
                             Expanded(
@@ -624,9 +499,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 18),
-
                         const Text(
                           'Sign in with phone',
                           style: TextStyle(
@@ -635,27 +508,19 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             color: Color(0xFF33334A),
                           ),
                         ),
-
                         const SizedBox(height: 10),
-
-                        // ==================================================
-                        // PHONE
-                        // ==================================================
                         TextField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
                           maxLength: 10,
+                          style: const TextStyle(color: _fieldTextColor),
+                          cursorColor: AppColors.primary,
                           decoration: _inputDecoration(
                             label: 'Phone number',
                             icon: Icons.phone_outlined,
                           ).copyWith(prefixText: '+91  ', counterText: ''),
                         ),
-
                         const SizedBox(height: 14),
-
-                        // ==================================================
-                        // OTP BUTTON
-                        // ==================================================
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -675,13 +540,13 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                             icon: _isOtpLoading
                                 ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      color: AppColors.primary,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: AppColors.primary,
+                                strokeWidth: 2,
+                              ),
+                            )
                                 : const Icon(Icons.sms_outlined, size: 18),
                             label: Text(
                               _isOtpLoading ? 'Sending...' : 'Send OTP',
@@ -692,12 +557,7 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 25),
-
-                        // ==================================================
-                        // REGISTER
-                        // ==================================================
                         Center(
                           child: GestureDetector(
                             onTap: () {
