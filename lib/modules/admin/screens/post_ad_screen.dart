@@ -1,11 +1,11 @@
- 
 import 'dart:io';
-
 import 'package:cloudinary_public/cloudinary_public.dart';
+import 'package:digitalads/modules/admin/screens/video_trim_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
@@ -19,6 +19,12 @@ class PostAdScreen extends StatefulWidget {
 }
 
 class _PostAdScreenState extends State<PostAdScreen> {
+  // Business rules for media — keep these in one place so both the
+  // validation and the hint text below always agree with each other.
+  static const int _minImages = 3;
+  static const int _maxImages = 5;
+  static const Duration _maxVideoDuration = Duration(seconds: 30);
+
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _offerController = TextEditingController();
@@ -34,8 +40,10 @@ class _PostAdScreenState extends State<PostAdScreen> {
   List<File> _selectedImages = [];
   File? _selectedVideo;
   VideoPlayerController? _videoController;
+  Duration? _videoDuration;
 
   bool _isLoading = false;
+  bool _isProcessingVideo = false;
 
   final cloudinary = CloudinaryPublic(
     'dqs6gmhsp',
@@ -72,17 +80,91 @@ class _PostAdScreenState extends State<PostAdScreen> {
         imageQuality: 90,
       );
 
-      if (pickedFiles.isNotEmpty) {
-        setState(() {
-          _selectedImages =
-              pickedFiles.map((e) => File(e.path)).toList();
-        });
+      if (pickedFiles.isEmpty) return;
+
+      var files = pickedFiles.map((e) => File(e.path)).toList();
+
+      if (files.length > _maxImages) {
+        files = files.take(_maxImages).toList();
+        _showSnackBar(
+          'You can upload up to $_maxImages images — the first $_maxImages were kept.',
+          isError: true,
+        );
       }
+
+      setState(() {
+        _selectedImages = files;
+      });
     } catch (e) {
       _showSnackBar(
         'Unable to select images',
         isError: true,
       );
+    }
+  }
+
+  Future<void> _addMoreImages() async {
+    if (_selectedImages.length >= _maxImages) {
+      _showSnackBar(
+        'You\'ve already selected the maximum of $_maxImages images.',
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      final picker = ImagePicker();
+      final remainingSlots = _maxImages - _selectedImages.length;
+
+      final pickedFiles = await picker.pickMultiImage(imageQuality: 90);
+      if (pickedFiles.isEmpty) return;
+
+      var newFiles = pickedFiles.map((e) => File(e.path)).toList();
+
+      if (newFiles.length > remainingSlots) {
+        newFiles = newFiles.take(remainingSlots).toList();
+        _showSnackBar(
+          'Only $remainingSlots more image${remainingSlots == 1 ? '' : 's'} could be added (max $_maxImages total).',
+          isError: true,
+        );
+      }
+
+      setState(() {
+        _selectedImages = [..._selectedImages, ...newFiles];
+      });
+    } catch (e) {
+      _showSnackBar('Unable to select images', isError: true);
+    }
+  }
+
+  /// Opens a native crop UI for one already-picked image, before upload.
+  Future<void> _editImage(int index) async {
+    try {
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: _selectedImages[index].path,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 90,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Edit Image',
+            toolbarColor: AppColors.primary,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(
+            title: 'Edit Image',
+          ),
+        ],
+      );
+
+      if (cropped == null) return;
+
+      setState(() {
+        _selectedImages[index] = File(cropped.path);
+      });
+    } catch (e) {
+      _showSnackBar('Unable to edit image', isError: true);
     }
   }
 
@@ -100,13 +182,45 @@ class _PostAdScreenState extends State<PostAdScreen> {
 
       if (pickedFile == null) return;
 
+      setState(() => _isProcessingVideo = true);
+
       await _videoController?.dispose();
 
-      final videoFile = File(pickedFile.path);
+      var videoFile = File(pickedFile.path);
 
-      final controller = VideoPlayerController.file(videoFile);
-
+      var controller = VideoPlayerController.file(videoFile);
       await controller.initialize();
+
+      final duration = controller.value.duration;
+
+      // Video is longer than the limit — send it straight to the trim
+      // screen (same idea as WhatsApp cutting a status video before
+      // posting) instead of silently rejecting it.
+      if (duration > _maxVideoDuration) {
+        await controller.dispose();
+
+        if (!mounted) return;
+
+        final trimmedFile = await Navigator.push<File?>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VideoTrimScreen(
+              videoFile: videoFile,
+              maxDuration: _maxVideoDuration,
+            ),
+          ),
+        );
+
+        if (trimmedFile == null) {
+          // User backed out of trimming — don't keep an over-length video.
+          setState(() => _isProcessingVideo = false);
+          return;
+        }
+
+        videoFile = trimmedFile;
+        controller = VideoPlayerController.file(videoFile);
+        await controller.initialize();
+      }
 
       if (!mounted) {
         await controller.dispose();
@@ -116,13 +230,49 @@ class _PostAdScreenState extends State<PostAdScreen> {
       setState(() {
         _selectedVideo = videoFile;
         _videoController = controller;
+        _videoDuration = controller.value.duration;
+        _isProcessingVideo = false;
       });
     } catch (e) {
+      setState(() => _isProcessingVideo = false);
       _showSnackBar(
         'Unable to select video',
         isError: true,
       );
     }
+  }
+
+  /// Lets the user re-trim an already-accepted video (e.g. to shorten it
+  /// further, not just to get it under the limit).
+  Future<void> _trimExistingVideo() async {
+    if (_selectedVideo == null) return;
+
+    final trimmedFile = await Navigator.push<File?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VideoTrimScreen(
+          videoFile: _selectedVideo!,
+          maxDuration: _maxVideoDuration,
+        ),
+      ),
+    );
+
+    if (trimmedFile == null) return;
+
+    await _videoController?.dispose();
+    final controller = VideoPlayerController.file(trimmedFile);
+    await controller.initialize();
+
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+
+    setState(() {
+      _selectedVideo = trimmedFile;
+      _videoController = controller;
+      _videoDuration = controller.value.duration;
+    });
   }
 
   // ============================================================
@@ -164,11 +314,35 @@ class _PostAdScreenState extends State<PostAdScreen> {
     final title = _titleController.text.trim();
     final description = _descriptionController.text.trim();
 
-    if (title.isEmpty ||
-        description.isEmpty ||
-        _selectedImages.isEmpty) {
+    if (title.isEmpty || description.isEmpty) {
       _showSnackBar(
-        'Please enter title, description and select at least 1 image.',
+        'Please enter a title and description.',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_selectedImages.length < _minImages) {
+      _showSnackBar(
+        'Please select at least $_minImages images (up to $_maxImages).',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_selectedImages.length > _maxImages) {
+      _showSnackBar(
+        'Please keep it to $_maxImages images or fewer.',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_selectedVideo != null &&
+        _videoDuration != null &&
+        _videoDuration! > _maxVideoDuration) {
+      _showSnackBar(
+        'Video must be under ${_maxVideoDuration.inSeconds} seconds — please trim it first.',
         isError: true,
       );
       return;
@@ -538,6 +712,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
     required BuildContext context,
     required String title,
     required IconData icon,
+    String? subtitle,
     required List<Widget> children,
   }) {
     final theme = Theme.of(context);
@@ -601,6 +776,22 @@ class _PostAdScreenState extends State<PostAdScreen> {
               ),
             ],
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 44),
+              child: Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.3,
+                  color: isDark
+                      ? Colors.grey.shade400
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           ...children,
         ],
@@ -621,6 +812,8 @@ class _PostAdScreenState extends State<PostAdScreen> {
           context: context,
           title: 'PHOTOS',
           icon: Icons.photo_camera_outlined,
+          subtitle:
+          'Give size preference — pick $_minImages to $_maxImages images. Tap the edit icon on a photo to crop it before uploading.',
           children: [
             _buildImagePicker(context),
           ],
@@ -630,6 +823,8 @@ class _PostAdScreenState extends State<PostAdScreen> {
           context: context,
           title: 'VIDEO (OPTIONAL)',
           icon: Icons.videocam_outlined,
+          subtitle:
+          'Keep it under ${_maxVideoDuration.inSeconds} seconds — like a WhatsApp status. Longer videos open a trim screen automatically.',
           children: [
             _buildVideoPicker(context),
           ],
@@ -749,7 +944,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
               ),
               const SizedBox(height: 3),
               Text(
-                'You can select multiple images',
+                '$_minImages to $_maxImages images required',
                 style: TextStyle(
                   color: isDark
                       ? Colors.grey.shade400
@@ -763,6 +958,8 @@ class _PostAdScreenState extends State<PostAdScreen> {
       );
     }
 
+    final belowMin = _selectedImages.length < _minImages;
+
     return Column(
       crossAxisAlignment:
       CrossAxisAlignment.start,
@@ -771,17 +968,17 @@ class _PostAdScreenState extends State<PostAdScreen> {
           height: 104,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount:
-            _selectedImages.length + 1,
+            itemCount: _selectedImages.length < _maxImages
+                ? _selectedImages.length + 1
+                : _selectedImages.length,
             itemBuilder: (context, index) {
               // -----------------------------------------------
-              // ADD MORE
+              // ADD MORE (only shown while under the max)
               // -----------------------------------------------
 
-              if (index ==
-                  _selectedImages.length) {
+              if (index == _selectedImages.length) {
                 return GestureDetector(
-                  onTap: _pickImages,
+                  onTap: _addMoreImages,
                   child: Container(
                     width: 94,
                     margin:
@@ -875,6 +1072,28 @@ class _PostAdScreenState extends State<PostAdScreen> {
                     ),
                   ),
 
+                  // Edit / crop
+                  Positioned(
+                    bottom: 5,
+                    right: 13,
+                    child: GestureDetector(
+                      onTap: () => _editImage(index),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.crop_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+
                   // Image number
                   Positioned(
                     left: 6,
@@ -909,12 +1128,14 @@ class _PostAdScreenState extends State<PostAdScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          '${_selectedImages.length} image${_selectedImages.length == 1 ? '' : 's'} selected',
+          '${_selectedImages.length} of $_maxImages images selected'
+              '${belowMin ? ' — need at least $_minImages' : ''}',
           style: TextStyle(
             fontSize: 11.5,
-            color: isDark
-                ? Colors.grey.shade400
-                : Colors.grey.shade600,
+            fontWeight: belowMin ? FontWeight.w600 : FontWeight.normal,
+            color: belowMin
+                ? AppColors.error
+                : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
           ),
         ),
       ],
@@ -928,6 +1149,22 @@ class _PostAdScreenState extends State<PostAdScreen> {
   Widget _buildVideoPicker(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
+    if (_isProcessingVideo) {
+      return Container(
+        height: 125,
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 2,
+          ),
+        ),
+      );
+    }
 
     if (_selectedVideo == null) {
       return GestureDetector(
@@ -975,7 +1212,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
               ),
               const SizedBox(height: 3),
               Text(
-                'Optional promotional video',
+                'Under ${_maxVideoDuration.inSeconds} seconds',
                 style: TextStyle(
                   color: isDark
                       ? Colors.grey.shade400
@@ -990,6 +1227,9 @@ class _PostAdScreenState extends State<PostAdScreen> {
     }
 
     final controller = _videoController;
+    final durationLabel = _videoDuration != null
+        ? '${_videoDuration!.inSeconds}s'
+        : '';
 
     return Column(
       crossAxisAlignment:
@@ -997,58 +1237,84 @@ class _PostAdScreenState extends State<PostAdScreen> {
       children: [
         if (controller != null &&
             controller.value.isInitialized)
-          ClipRRect(
-            borderRadius:
-            BorderRadius.circular(14),
-            child: Container(
-              color: Colors.black,
-              child: AspectRatio(
-                aspectRatio:
-                controller.value.aspectRatio,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    VideoPlayer(controller),
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius:
+                BorderRadius.circular(14),
+                child: Container(
+                  color: Colors.black,
+                  child: AspectRatio(
+                    aspectRatio:
+                    controller.value.aspectRatio,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        VideoPlayer(controller),
 
-                    // Play button overlay
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          controller.value.isPlaying
-                              ? controller.pause()
-                              : controller.play();
-                        });
-                      },
-                      child: AnimatedOpacity(
-                        duration:
-                        const Duration(
-                          milliseconds: 200,
-                        ),
-                        opacity:
-                        controller.value.isPlaying
-                            ? .0
-                            : 1.0,
-                        child: Container(
-                          width: 52,
-                          height: 52,
-                          decoration:
-                          BoxDecoration(
-                            color: Colors.black
-                                .withOpacity(.55),
-                            shape: BoxShape.circle,
+                        // Play button overlay
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              controller.value.isPlaying
+                                  ? controller.pause()
+                                  : controller.play();
+                            });
+                          },
+                          child: AnimatedOpacity(
+                            duration:
+                            const Duration(
+                              milliseconds: 200,
+                            ),
+                            opacity:
+                            controller.value.isPlaying
+                                ? .0
+                                : 1.0,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration:
+                              BoxDecoration(
+                                color: Colors.black
+                                    .withOpacity(.55),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 30,
+                              ),
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 30,
-                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.6),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    durationLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           )
         else
           Container(
@@ -1070,6 +1336,26 @@ class _PostAdScreenState extends State<PostAdScreen> {
 
         Row(
           children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _trimExistingVideo,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(
+                    color: AppColors.primary.withOpacity(.45),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                icon: const Icon(Icons.content_cut_rounded, size: 16),
+                label: const Text(
+                  'Trim',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: _pickVideo,
@@ -1107,6 +1393,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
                 onPressed: () {
                   setState(() {
                     _selectedVideo = null;
+                    _videoDuration = null;
                     _videoController?.dispose();
                     _videoController = null;
                   });

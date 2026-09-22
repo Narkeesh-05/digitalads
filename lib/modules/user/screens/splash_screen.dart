@@ -1,4 +1,6 @@
+import 'package:digitalads/modules/user/screens/sign_up_page.dart';
 import 'package:digitalads/modules/user/screens/user_login_screen.dart';
+import 'package:digitalads/modules/user/screens/welcome_screen.dart';
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -20,10 +22,16 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigate() async {
     await Future.delayed(const Duration(seconds: 3));
     if (mounted) {
+      // Navigator.pushReplacement(
+      //   context,
+      //   MaterialPageRoute(
+      //     builder: (_) => const UserLoginScreen(),
+      //   ),
+      // );
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => const UserLoginScreen(),
+          builder: (_) => const WelcomeScreen(),
         ),
       );
     }
