@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../main.dart';
 import '../../user/screens/ad_engagement_screen.dart';
+import 'post_ad_screen.dart';
 
 class ViewMyAdsScreen extends StatelessWidget {
   const ViewMyAdsScreen({super.key});
@@ -42,6 +43,13 @@ class ViewMyAdsScreen extends StatelessWidget {
         const SnackBar(content: Text('Ad Deleted'), backgroundColor: AppColors.error),
       );
     }
+  }
+
+  void _editAd(BuildContext context, String adId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PostAdScreen(adId: adId)),
+    );
   }
 
   @override
@@ -96,6 +104,7 @@ class ViewMyAdsScreen extends StatelessWidget {
                     ad: adsList[index],
                     imageUrls: _extractImageUrls(adsList[index]),
                     isDark: isDark,
+                    onEdit: () => _editAd(context, adsList[index]['id'].toString()),
                     onDelete: () => _deleteAd(context, adsList[index]['id']),
                   ),
                 );
@@ -116,6 +125,7 @@ class ViewMyAdsScreen extends StatelessWidget {
                   ad: adsList[index],
                   imageUrls: _extractImageUrls(adsList[index]),
                   isDark: isDark,
+                  onEdit: () => _editAd(context, adsList[index]['id'].toString()),
                   onDelete: () => _deleteAd(context, adsList[index]['id']),
                 ),
               );
@@ -160,12 +170,14 @@ class _AdCard extends StatelessWidget {
   final Map<String, dynamic> ad;
   final List<String> imageUrls;
   final bool isDark;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _AdCard({
     required this.ad,
     required this.imageUrls,
     required this.isDark,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -319,6 +331,19 @@ class _AdCard extends StatelessWidget {
                           )),
                     ],
                     const Spacer(),
+
+                    // ── Edit ──
+                    InkWell(
+                      onTap: onEdit,
+                      borderRadius: BorderRadius.circular(20),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.edit_outlined, color: AppColors.primary, size: 20),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // ── Delete ──
                     InkWell(
                       onTap: onDelete,
                       borderRadius: BorderRadius.circular(20),
