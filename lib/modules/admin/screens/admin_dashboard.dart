@@ -6,7 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 
 import 'add_seller_screen.dart';
-import 'View my sellers screen.dart';
+import 'view_my_sellers_screen.dart';
 import 'view_my_ads_screen.dart';
 import '../../../app/theme.dart';
 import '../../../main.dart';

@@ -3,7 +3,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../../../app/theme.dart';
 import '../../../main.dart';
 import '../../user/screens/seller_document_upload.dart';

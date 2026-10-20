@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:digitalads/modules/user/screens/user_drawer.dart';
 import 'package:digitalads/modules/user/screens/wallet_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,12 +12,14 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../main.dart';
+import '../../admin/screens/product_status.dart';
 import 'ad_engagement_screen.dart';
 import 'ad_search_delegate.dart';
 import 'network_video_player.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/ad_links.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -24,11 +29,64 @@ class UserHomeScreen extends StatefulWidget {
 }
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
+  // Handles links like https://<host>/ad/<adId>
+  static bool _initialLinkHandled = false;
+  StreamSubscription<Uri>? _linkSub;
+  String? _lastOpenedAdId;
+  DateTime? _lastOpenedAt;
 
   @override
   void initState() {
     super.initState();
     _requestLocationPermission();
+    _initDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    final appLinks = AppLinks();
+
+    try {
+      // App was launched by tapping a shared link.
+      if (!_initialLinkHandled) {
+        _initialLinkHandled = true;
+        final initial = await appLinks.getInitialLink();
+        if (initial != null) _openAdFromUri(initial);
+      }
+    } catch (e) {
+      debugPrint('Initial link error: $e');
+    }
+
+    // App was already running when a link was tapped.
+    _linkSub = appLinks.uriLinkStream.listen(
+      _openAdFromUri,
+      onError: (e) => debugPrint('Link stream error: $e'),
+    );
+  }
+
+  void _openAdFromUri(Uri uri) {
+    final adId = AdLinks.adIdFromUri(uri);
+    if (adId == null || !mounted) return;
+
+    // The same link can arrive twice (initial + stream) — open it once.
+    final now = DateTime.now();
+    if (_lastOpenedAdId == adId &&
+        _lastOpenedAt != null &&
+        now.difference(_lastOpenedAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastOpenedAdId = adId;
+    _lastOpenedAt = now;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => AdDetailScreen(adId: adId)),
+    );
   }
 
   Future<void> _requestLocationPermission() async {
@@ -61,378 +119,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       double lon2,
       ) {
     return Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000;
-  }
-
-  void _showEnquiryDialog(BuildContext context, Map<String, dynamic> ad) {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final messageController = TextEditingController();
-    final isDark = context.read<ThemeProvider>().isDark;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: const Text(
-          'Send Enquiry',
-          style: TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextPrimary
-                      : AppColors.textPrimary,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Your Name',
-                  prefixIcon: const Icon(
-                    Icons.person_outline_rounded,
-                    color: AppColors.primary,
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? AppColors.darkSurfaceVariant
-                      : AppColors.surfaceVariant,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextPrimary
-                      : AppColors.textPrimary,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Phone Number',
-                  prefixIcon: const Icon(
-                    Icons.phone_outlined,
-                    color: AppColors.primary,
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? AppColors.darkSurfaceVariant
-                      : AppColors.surfaceVariant,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: messageController,
-                maxLines: 3,
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextPrimary
-                      : AppColors.textPrimary,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Message',
-                  prefixIcon: const Icon(
-                    Icons.message_outlined,
-                    color: AppColors.primary,
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? AppColors.darkSurfaceVariant
-                      : AppColors.surfaceVariant,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: isDark
-                    ? AppColors.darkTextSecondary
-                    : AppColors.textSecondary,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (nameController.text.isEmpty ||
-                  phoneController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please fill name and phone!'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              await FirebaseDatabase.instance.ref('enquiries').push().set({
-                'adId': ad['id'],
-                'adTitle': ad['title'],
-                'adminId': ad['adminId'],
-                'userName': nameController.text.trim(),
-                'userPhone': phoneController.text.trim(),
-                'message': messageController.text.trim(),
-                'userId': FirebaseAuth.instance.currentUser!.uid,
-                'createdAt': DateTime.now().toIso8601String(),
-              });
-
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Enquiry Sent Successfully!'),
-                    backgroundColor: Color(0xFF1D9E75),
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text('Send', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) async {
-    final adId = ad['id'];
-    final userId = FirebaseAuth.instance.currentUser!.uid;
-
-    if (adId != null) {
-      final attemptSnap = await FirebaseDatabase.instance
-          .ref('ads/$adId/quizAttempts/$userId')
-          .get();
-      if (attemptSnap.exists) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("You've already attempted this quiz!"),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        return;
-      }
-    }
-
-    if (!context.mounted) return;
-
-    final quiz = Map<String, dynamic>.from(ad['quiz'] as Map);
-    final List<dynamic> options = quiz['options'];
-    int selectedIndex = -1;
-    final isDark = context.read<ThemeProvider>().isDark;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text(
-            '📝 Quiz Time!',
-            style: TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                quiz['question'] ?? '',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: isDark
-                      ? AppColors.darkTextPrimary
-                      : AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ...List.generate(
-                options.length,
-                    (index) => GestureDetector(
-                  onTap: () {
-                    setDialogState(() => selectedIndex = index);
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: selectedIndex == index
-                          ? AppColors.primarySurface
-                          : (isDark
-                          ? AppColors.darkSurfaceVariant
-                          : AppColors.surfaceVariant),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: selectedIndex == index
-                            ? AppColors.primary
-                            : (isDark
-                            ? AppColors.darkBorder
-                            : AppColors.border),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          selectedIndex == index
-                              ? Icons.check_circle
-                              : Icons.circle_outlined,
-                          color: selectedIndex == index
-                              ? AppColors.primary
-                              : (isDark
-                              ? AppColors.darkTextSecondary
-                              : AppColors.textHint),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          options[index].toString(),
-                          style: TextStyle(
-                            color: isDark
-                                ? AppColors.darkTextPrimary
-                                : AppColors.textPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: selectedIndex == -1
-                  ? null
-                  : () async {
-                int correctIndex = quiz['correctIndex'] ?? 0;
-                bool isCorrect = selectedIndex == correctIndex;
-
-                if (adId != null) {
-                  await FirebaseDatabase.instance
-                      .ref('ads/$adId/quizAttempts/$userId')
-                      .set({
-                    'selectedIndex': selectedIndex,
-                    'correct': isCorrect,
-                    'attemptedAt': DateTime.now().toIso8601String(),
-                  });
-                }
-
-                if (isCorrect) {
-                  DatabaseReference pointsRef = FirebaseDatabase
-                      .instance
-                      .ref('users/$userId/points');
-
-                  final snapshot = await pointsRef.get();
-                  int currentPoints = snapshot.exists
-                      ? (snapshot.value as int)
-                      : 0;
-
-                  await pointsRef.set(currentPoints + 10);
-
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          '🎉 Correct! You earned 10 points!',
-                        ),
-                        backgroundColor: Color(0xFF1D9E75),
-                      ),
-                    );
-                  }
-                } else {
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('❌ Wrong Answer! Better luck next time!'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: const Text(
-                'Submit',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -586,6 +272,510 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 },
               );
             },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ENQUIRY + QUIZ DIALOGS (top-level so the home feed and AdDetailScreen
+// can both use them)
+// ════════════════════════════════════════════════════════════════════════
+void _showEnquiryDialog(BuildContext context, Map<String, dynamic> ad) {
+  final nameController = TextEditingController();
+  final phoneController = TextEditingController();
+  final messageController = TextEditingController();
+  final isDark = context.read<ThemeProvider>().isDark;
+
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      title: const Text(
+        'Send Enquiry',
+        style: TextStyle(
+          color: AppColors.primary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextPrimary
+                    : AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                labelText: 'Your Name',
+                prefixIcon: const Icon(
+                  Icons.person_outline_rounded,
+                  color: AppColors.primary,
+                ),
+                filled: true,
+                fillColor: isDark
+                    ? AppColors.darkSurfaceVariant
+                    : AppColors.surfaceVariant,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneController,
+              keyboardType: TextInputType.phone,
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextPrimary
+                    : AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                labelText: 'Phone Number',
+                prefixIcon: const Icon(
+                  Icons.phone_outlined,
+                  color: AppColors.primary,
+                ),
+                filled: true,
+                fillColor: isDark
+                    ? AppColors.darkSurfaceVariant
+                    : AppColors.surfaceVariant,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: messageController,
+              maxLines: 3,
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextPrimary
+                    : AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                labelText: 'Message',
+                prefixIcon: const Icon(
+                  Icons.message_outlined,
+                  color: AppColors.primary,
+                ),
+                filled: true,
+                fillColor: isDark
+                    ? AppColors.darkSurfaceVariant
+                    : AppColors.surfaceVariant,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+              color: isDark
+                  ? AppColors.darkTextSecondary
+                  : AppColors.textSecondary,
+            ),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            if (nameController.text.isEmpty ||
+                phoneController.text.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please fill name and phone!'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              return;
+            }
+
+            await FirebaseDatabase.instance.ref('enquiries').push().set({
+              'adId': ad['id'],
+              'adTitle': ad['title'],
+              'adminId': ad['adminId'],
+              'userName': nameController.text.trim(),
+              'userPhone': phoneController.text.trim(),
+              'message': messageController.text.trim(),
+              'userId': FirebaseAuth.instance.currentUser!.uid,
+              'createdAt': DateTime.now().toIso8601String(),
+            });
+
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Enquiry Sent Successfully!'),
+                  backgroundColor: Color(0xFF1D9E75),
+                ),
+              );
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Text('Send', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) async {
+  final adId = ad['id'];
+  final userId = FirebaseAuth.instance.currentUser!.uid;
+
+  if (adId != null) {
+    final attemptSnap = await FirebaseDatabase.instance
+        .ref('ads/$adId/quizAttempts/$userId')
+        .get();
+    if (attemptSnap.exists) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("You've already attempted this quiz!"),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+  }
+
+  if (!context.mounted) return;
+
+  final quiz = Map<String, dynamic>.from(ad['quiz'] as Map);
+  final List<dynamic> options = quiz['options'];
+  int selectedIndex = -1;
+  final isDark = context.read<ThemeProvider>().isDark;
+
+  showDialog(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Text(
+          '📝 Quiz Time!',
+          style: TextStyle(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              quiz['question'] ?? '',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? AppColors.darkTextPrimary
+                    : AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...List.generate(
+              options.length,
+                  (index) => GestureDetector(
+                onTap: () {
+                  setDialogState(() => selectedIndex = index);
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selectedIndex == index
+                        ? AppColors.primarySurface
+                        : (isDark
+                        ? AppColors.darkSurfaceVariant
+                        : AppColors.surfaceVariant),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selectedIndex == index
+                          ? AppColors.primary
+                          : (isDark
+                          ? AppColors.darkBorder
+                          : AppColors.border),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        selectedIndex == index
+                            ? Icons.check_circle
+                            : Icons.circle_outlined,
+                        color: selectedIndex == index
+                            ? AppColors.primary
+                            : (isDark
+                            ? AppColors.darkTextSecondary
+                            : AppColors.textHint),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        options[index].toString(),
+                        style: TextStyle(
+                          color: isDark
+                              ? AppColors.darkTextPrimary
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.textSecondary,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: selectedIndex == -1
+                ? null
+                : () async {
+              int correctIndex = quiz['correctIndex'] ?? 0;
+              bool isCorrect = selectedIndex == correctIndex;
+
+              if (adId != null) {
+                await FirebaseDatabase.instance
+                    .ref('ads/$adId/quizAttempts/$userId')
+                    .set({
+                  'selectedIndex': selectedIndex,
+                  'correct': isCorrect,
+                  'attemptedAt': DateTime.now().toIso8601String(),
+                });
+              }
+
+              if (isCorrect) {
+                DatabaseReference pointsRef = FirebaseDatabase
+                    .instance
+                    .ref('users/$userId/points');
+
+                final snapshot = await pointsRef.get();
+                int currentPoints = snapshot.exists
+                    ? (snapshot.value as int)
+                    : 0;
+
+                await pointsRef.set(currentPoints + 10);
+
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        '🎉 Correct! You earned 10 points!',
+                      ),
+                      backgroundColor: Color(0xFF1D9E75),
+                    ),
+                  );
+                }
+              } else {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Wrong Answer! Better luck next time!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text(
+              'Submit',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// AD DETAIL — opened from a shared link (https://<host>/ad/<adId>)
+// ════════════════════════════════════════════════════════════════════════
+class AdDetailScreen extends StatefulWidget {
+  final String adId;
+
+  const AdDetailScreen({super.key, required this.adId});
+
+  @override
+  State<AdDetailScreen> createState() => _AdDetailScreenState();
+}
+
+class _AdDetailScreenState extends State<AdDetailScreen> {
+  late final Future<Map<String, dynamic>?> _future = _load();
+
+  Future<Map<String, dynamic>?> _load() async {
+    final snap =
+    await FirebaseDatabase.instance.ref('ads/${widget.adId}').get();
+
+    if (!snap.exists || snap.value is! Map) return null;
+
+    final ad = Map<String, dynamic>.from(snap.value as Map);
+    ad['id'] = widget.adId;
+
+    // Distance from the current user (same as the home feed).
+    double distance = 999999;
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && ad['latitude'] != null && ad['longitude'] != null) {
+        final userSnap = await FirebaseDatabase.instance.ref('users/$uid').get();
+        if (userSnap.exists && userSnap.value is Map) {
+          final user = Map<String, dynamic>.from(userSnap.value as Map);
+          final lat = (user['latitude'] as num?)?.toDouble();
+          final lng = (user['longitude'] as num?)?.toDouble();
+          if (lat != null && lng != null) {
+            distance = Geolocator.distanceBetween(
+              lat,
+              lng,
+              (ad['latitude'] as num).toDouble(),
+              (ad['longitude'] as num).toDouble(),
+            ) /
+                1000;
+          }
+        }
+      }
+    } catch (_) {}
+    ad['distance'] = distance;
+
+    return ad;
+  }
+
+  List<String> _imageUrls(Map<String, dynamic> ad) {
+    List<String> imageUrls = [];
+    if (ad['imageUrls'] != null) {
+      if (ad['imageUrls'] is List) {
+        imageUrls = List<String>.from(ad['imageUrls']);
+      } else if (ad['imageUrls'] is Map) {
+        imageUrls = Map<dynamic, dynamic>.from(ad['imageUrls'])
+            .values
+            .map((e) => e.toString())
+            .toList();
+      }
+    }
+    if (ad['imageUrl'] != null && ad['imageUrl'].toString().isNotEmpty) {
+      imageUrls.add(ad['imageUrl'].toString());
+    }
+    return imageUrls;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDark;
+
+    return Scaffold(
+      backgroundColor: isDark ? AppColors.darkBackground : AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        title: const Text(
+          'Ad',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: FutureBuilder<Map<String, dynamic>?>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            );
+          }
+
+          final ad = snapshot.data;
+
+          if (snapshot.hasError || ad == null) {
+            return _EmptyState(
+              isDark: isDark,
+              icon: Icons.link_off_rounded,
+              message: 'This ad is no longer available',
+              subtitle: 'The seller may have removed it',
+            );
+          }
+
+          final imageUrls = _imageUrls(ad);
+          final String? videoUrl = ad['videoUrl']?.toString();
+          final hasVideo = videoUrl != null && videoUrl.isNotEmpty;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: _AdCard(
+              key: ValueKey(ad['id']),
+              ad: ad,
+              imageUrls: imageUrls,
+              videoUrl: hasVideo ? videoUrl : null,
+              totalSlides: imageUrls.length + (hasVideo ? 1 : 0),
+              isDark: isDark,
+              onEnquire: () => _showEnquiryDialog(context, ad),
+              onQuiz: () => _showQuizDialog(context, ad),
+            ),
           );
         },
       ),
@@ -779,6 +969,13 @@ class _AdCardState extends State<_AdCard> {
       text.writeln('🎯 Offer: $offer');
     }
 
+    final shareAdId = widget.ad['id'];
+    if (shareAdId != null) {
+      text.writeln();
+      text.writeln('🔗 View this ad:');
+      text.writeln(AdLinks.adUrl(shareAdId.toString()));
+    }
+
     text.writeln();
     text.writeln('Seen on DigitalAds');
 
@@ -826,6 +1023,7 @@ class _AdCardState extends State<_AdCard> {
     final ad = widget.ad;
     final isDark = widget.isDark;
     final double distance = ad['distance'] as double;
+    final bool isSold = ProductStatus.isSold(ad);
     final adId = ad['id'];
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -877,6 +1075,41 @@ class _AdCardState extends State<_AdCard> {
                   ],
                 ),
               ),
+
+              // SOLD overlay
+              if (isSold)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(16),
+                      ),
+                      child: Container(
+                        color: Colors.black.withOpacity(0.45),
+                        alignment: Alignment.center,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 22,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white, width: 2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'SOLD',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
               // Distance badge
               Positioned(
@@ -974,15 +1207,24 @@ class _AdCardState extends State<_AdCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  ad['title'] ?? '',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: isDark
-                        ? AppColors.darkTextPrimary
-                        : AppColors.textPrimary,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        ad['title'] ?? '',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? AppColors.darkTextPrimary
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ProductStatusChip(isSold: isSold),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(

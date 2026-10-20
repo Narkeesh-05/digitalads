@@ -1,50 +1,59 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloudinary_public/cloudinary_public.dart';
+import 'package:digitalads/data/models/ad_form_data.dart';
+import 'package:digitalads/data/repositories/ad_draft_repository.dart';
+import 'package:digitalads/data/repositories/ad_repository.dart';
+import 'package:digitalads/data/repositories/media_upload_repository.dart';
+import 'package:digitalads/data/services/location_service.dart';
+import 'package:digitalads/modules/admin/screens/product_status.dart';
 import 'package:digitalads/modules/admin/screens/video_trim_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
-
+import 'package:digitalads/data/models/ad_form_data.dart';
 import '../../../app/theme.dart';
-
-/// One photo in the picker: either already uploaded (network) or newly
-/// picked from the device (local file).
-class _ImageItem {
-  final String? url;
-  final File? file;
-
-  const _ImageItem.network(String this.url) : file = null;
-  const _ImageItem.local(File this.file) : url = null;
-
-  bool get isNetwork => url != null;
-}
+import 'bloc/ad_form/ad_form_bloc.dart';
+import 'bloc/ad_form/ad_form_event.dart';
+import 'bloc/ad_form/ad_form_state.dart';
 
 /// Post a new ad, or edit an existing one when [adId] is given.
-class PostAdScreen extends StatefulWidget {
+class PostAdScreen extends StatelessWidget {
   final String? adId;
 
   const PostAdScreen({super.key, this.adId});
 
   @override
-  State<PostAdScreen> createState() => _PostAdScreenState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (ctx) => AdFormBloc(
+        adId: adId,
+        ads: ctx.read<AdRepository>(),
+        media: ctx.read<MediaUploadRepository>(),
+        drafts: ctx.read<AdDraftRepository>(),
+        location: ctx.read<LocationService>(),
+      )..add(AdFormStarted()),
+      child: _PostAdView(adId: adId),
+    );
+  }
 }
 
-class _PostAdScreenState extends State<PostAdScreen> {
-  // Business rules for media — keep these in one place so both the
-  // validation and the hint text below always agree with each other.
-  static const int _minImages = 3;
-  static const int _maxImages = 5;
-  static const Duration _maxVideoDuration = Duration(seconds: 30);
+class _PostAdView extends StatefulWidget {
+  final String? adId;
+
+  const _PostAdView({this.adId});
+
+  @override
+  State<_PostAdView> createState() => _PostAdViewState();
+}
+
+class _PostAdViewState extends State<_PostAdView> {
+  // Business rules live in AdFormValidator; aliases keep the UI code short.
+  static const int _minImages = AdFormValidator.minImages;
+  static const int _maxImages = AdFormValidator.maxImages;
+  static const Duration _maxVideoDuration = AdFormValidator.maxVideoDuration;
 
   bool get _isEdit => widget.adId != null;
 
@@ -60,312 +69,137 @@ class _PostAdScreenState extends State<PostAdScreen> {
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
 
-  Timer? _draftSaveTimer;
-  bool _isRestoringDraft = false;
-
   int _correctAnswerIndex = 0;
+  String _status = ProductStatus.available;
 
-  List<_ImageItem> _images = [];
+  List<AdImageItem> _images = [];
   File? _selectedVideo; // newly picked video
   String? _existingVideoUrl; // already uploaded video (edit mode)
   VideoPlayerController? _videoController;
   Duration? _videoDuration;
 
-  bool _isLoading = false;
   bool _isProcessingVideo = false;
-  bool _isLoadingAd = false;
+  bool _applyingData = false;
 
   bool get _hasVideo => _selectedVideo != null || _existingVideoUrl != null;
 
-  final cloudinary = CloudinaryPublic(
-    'dqs6gmhsp',
-    'digitalads',
-    cache: false,
+  List<TextEditingController> get _controllers => [
+    _titleController,
+    _descriptionController,
+    _offerController,
+    _phoneController,
+    _whatsappController,
+    _quizQuestionController,
+    _option1Controller,
+    _option2Controller,
+    _option3Controller,
+    _option4Controller,
+  ];
+
+  // ============================================================
+  // UI STATE  <->  BLOC DATA
+  // ============================================================
+
+  /// Reads the form and packs it for the bloc.
+  AdFormData _collect() => AdFormData(
+    title: _titleController.text,
+    description: _descriptionController.text,
+    offer: _offerController.text,
+    phone: _phoneController.text.trim(),
+    whatsapp: _whatsappController.text.trim(),
+    quizQuestion: _quizQuestionController.text,
+    options: [
+      _option1Controller.text,
+      _option2Controller.text,
+      _option3Controller.text,
+      _option4Controller.text,
+    ],
+    correctIndex: _correctAnswerIndex,
+    status: _status,
+    images: List.of(_images),
+    video: _selectedVideo,
+    existingVideoUrl: _existingVideoUrl,
+    videoDuration: _videoDuration,
   );
 
-  // ============================================================
-  // DRAFT (new ads only)
-  // ============================================================
+  /// Fills the form (edit load / draft restore).
+  Future<void> _applyData(AdFormData d) async {
+    _applyingData = true;
+    _titleController.text = d.title;
+    _descriptionController.text = d.description;
+    _offerController.text = d.offer;
+    _phoneController.text = d.phone;
+    _whatsappController.text = d.whatsapp;
+    _quizQuestionController.text = d.quizQuestion;
+    _option1Controller.text = d.options[0];
+    _option2Controller.text = d.options[1];
+    _option3Controller.text = d.options[2];
+    _option4Controller.text = d.options[3];
+    _correctAnswerIndex = d.correctIndex;
+    _status = d.status;
+    _images = List.of(d.images);
+    _selectedVideo = d.video;
+    _existingVideoUrl = d.existingVideoUrl;
+    _applyingData = false;
 
-  String get _draftKey {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-
-    if (uid == null) {
-      return 'post_ad_draft_guest';
-    }
-
-    return 'post_ad_draft_$uid';
+    await _initVideoPreview();
+    if (mounted) setState(() {});
   }
 
+  Future<void> _initVideoPreview() async {
+    VideoPlayerController? c;
+    try {
+      if (_selectedVideo != null) {
+        c = VideoPlayerController.file(_selectedVideo!);
+      } else if (_existingVideoUrl != null) {
+        c = VideoPlayerController.networkUrl(Uri.parse(_existingVideoUrl!));
+      }
+      await c?.initialize();
+    } catch (e) {
+      debugPrint('Video preview failed: $e');
+      await c?.dispose();
+      c = null;
+    }
+
+    if (!mounted) {
+      await c?.dispose();
+      return;
+    }
+
+    final old = _videoController;
+    _videoController = c;
+    _videoDuration = c?.value.duration;
+    WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+  }
+
+  /// Draft auto-save (new ads only). The bloc debounces it.
   void _scheduleDraftSave() {
-    if (_isEdit || _isRestoringDraft) return;
-
-    _draftSaveTimer?.cancel();
-
-    _draftSaveTimer = Timer(
-      const Duration(milliseconds: 500),
-      _saveDraft,
-    );
+    if (_isEdit || _applyingData) return;
+    context.read<AdFormBloc>().add(DraftChanged(_collect()));
   }
 
-  Future<void> _saveDraft() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  void _submit() => context.read<AdFormBloc>().add(SubmitAd(_collect()));
 
-      final draft = {
-        'title': _titleController.text,
-        'description': _descriptionController.text,
-        'offer': _offerController.text,
-        'phone': _phoneController.text,
-        'whatsapp': _whatsappController.text,
-        'quizQuestion': _quizQuestionController.text,
-        'option1': _option1Controller.text,
-        'option2': _option2Controller.text,
-        'option3': _option3Controller.text,
-        'option4': _option4Controller.text,
-        'correctAnswerIndex': _correctAnswerIndex,
-        'imagePaths': _images
-            .where((i) => i.file != null)
-            .map((i) => i.file!.path)
-            .toList(),
-        'videoPath': _selectedVideo?.path,
-        'savedAt': DateTime.now().toIso8601String(),
-      };
-
-      await prefs.setString(_draftKey, jsonEncode(draft));
-
-      debugPrint('Post Ad draft saved');
-    } catch (e) {
-      debugPrint('Draft save error: $e');
-    }
-  }
-
-  Future<void> _restoreDraft() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final savedDraft = prefs.getString(_draftKey);
-
-      if (savedDraft == null || savedDraft.isEmpty) {
-        debugPrint('No Post Ad draft found');
-        return;
-      }
-
-      final Map<String, dynamic> draft =
-      jsonDecode(savedDraft) as Map<String, dynamic>;
-
-      _isRestoringDraft = true;
-
-      _titleController.text = draft['title']?.toString() ?? '';
-      _descriptionController.text = draft['description']?.toString() ?? '';
-      _offerController.text = draft['offer']?.toString() ?? '';
-      _phoneController.text = draft['phone']?.toString() ?? '';
-      _whatsappController.text = draft['whatsapp']?.toString() ?? '';
-      _quizQuestionController.text = draft['quizQuestion']?.toString() ?? '';
-      _option1Controller.text = draft['option1']?.toString() ?? '';
-      _option2Controller.text = draft['option2']?.toString() ?? '';
-      _option3Controller.text = draft['option3']?.toString() ?? '';
-      _option4Controller.text = draft['option4']?.toString() ?? '';
-
-      final savedCorrectIndex = draft['correctAnswerIndex'];
-
-      if (savedCorrectIndex is int &&
-          savedCorrectIndex >= 0 &&
-          savedCorrectIndex <= 3) {
-        _correctAnswerIndex = savedCorrectIndex;
-      }
-
-      // Images
-      final savedImagePaths = draft['imagePaths'];
-
-      if (savedImagePaths is List) {
-        final restored = <_ImageItem>[];
-
-        for (final path in savedImagePaths) {
-          final file = File(path.toString());
-
-          if (await file.exists()) {
-            restored.add(_ImageItem.local(file));
-          }
-        }
-
-        _images = restored;
-      }
-
-      // Video
-      final savedVideoPath = draft['videoPath'];
-
-      if (savedVideoPath != null && savedVideoPath.toString().isNotEmpty) {
-        final videoFile = File(savedVideoPath.toString());
-
-        if (await videoFile.exists()) {
-          _selectedVideo = videoFile;
-
-          final controller = VideoPlayerController.file(videoFile);
-
-          await controller.initialize();
-
-          _videoController = controller;
-          _videoDuration = controller.value.duration;
-        }
-      }
-
-      _isRestoringDraft = false;
-
-      debugPrint('Post Ad draft restored');
-
-      if (mounted) {
-        final hasData = _titleController.text.isNotEmpty ||
-            _descriptionController.text.isNotEmpty ||
-            _offerController.text.isNotEmpty ||
-            _images.isNotEmpty ||
-            _selectedVideo != null ||
-            _quizQuestionController.text.isNotEmpty;
-
-        if (hasData) {
-          _showSnackBar(
-            'Your previous ad details have been restored.',
-            isError: false,
-          );
-        }
-
-        setState(() {});
-      }
-    } catch (e) {
-      _isRestoringDraft = false;
-
-      debugPrint('Draft restore error: $e');
-    }
-  }
-
-  Future<void> _clearDraft() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      await prefs.remove(_draftKey);
-
-      debugPrint('Post Ad draft cleared');
-    } catch (e) {
-      debugPrint('Draft clear error: $e');
-    }
-  }
-
-  // ============================================================
-  // LOAD EXISTING AD (edit mode)
-  // ============================================================
-
-  /// "+919876543210" -> "9876543210"
-  String _last10Digits(dynamic raw) {
-    final digits = (raw ?? '').toString().replaceAll(RegExp(r'\D'), '');
-    if (digits.length > 10) return digits.substring(digits.length - 10);
-    return digits;
-  }
-
-  void _failLoad(String message) {
-    if (!mounted) return;
-    _showSnackBar(message, isError: true);
-    Navigator.pop(context);
-  }
-
-  Future<void> _loadExistingAd() async {
-    try {
-      final snap =
-      await FirebaseDatabase.instance.ref('ads/${widget.adId}').get();
-
-      if (!snap.exists || snap.value is! Map) {
-        _failLoad('This ad no longer exists.');
-        return;
-      }
-
-      final data = Map<String, dynamic>.from(snap.value as Map);
-
-      // Only the seller who posted the ad may edit it.
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null || data['adminId'] != uid) {
-        _failLoad('You can only edit your own ads.');
-        return;
-      }
-
-      _titleController.text = (data['title'] ?? '').toString();
-      _descriptionController.text = (data['description'] ?? '').toString();
-      _offerController.text = (data['offer'] ?? '').toString();
-      _phoneController.text = _last10Digits(data['phone']);
-      _whatsappController.text = _last10Digits(data['whatsapp']);
-
-      // Images (stored as a List or a Map, with a legacy single imageUrl)
-      final urls = <String>[];
-      final rawImages = data['imageUrls'];
-      if (rawImages is List) {
-        urls.addAll(
-          rawImages.where((e) => e != null).map((e) => e.toString()),
+  void _onBlocState(BuildContext context, AdFormState state) {
+    if (state is AdFormLoaded) {
+      _applyData(state.data);
+      if (state.fromDraft) {
+        _showSnackBar(
+          'Your previous ad details have been restored.',
+          isError: false,
         );
-      } else if (rawImages is Map) {
-        urls.addAll(rawImages.values.map((e) => e.toString()));
       }
-      if (urls.isEmpty &&
-          data['imageUrl'] != null &&
-          data['imageUrl'].toString().isNotEmpty) {
-        urls.add(data['imageUrl'].toString());
-      }
-
-      // Quiz
-      final quiz = data['quiz'];
-      if (quiz is Map) {
-        _quizQuestionController.text = (quiz['question'] ?? '').toString();
-
-        final rawOptions = quiz['options'];
-        final options = <String>[];
-        if (rawOptions is List) {
-          options.addAll(rawOptions.map((e) => (e ?? '').toString()));
-        } else if (rawOptions is Map) {
-          options.addAll(rawOptions.values.map((e) => (e ?? '').toString()));
-        }
-
-        final controllers = [
-          _option1Controller,
-          _option2Controller,
-          _option3Controller,
-          _option4Controller,
-        ];
-        for (var i = 0; i < controllers.length && i < options.length; i++) {
-          controllers[i].text = options[i];
-        }
-
-        final correct = quiz['correctIndex'];
-        if (correct is int && correct >= 0 && correct <= 3) {
-          _correctAnswerIndex = correct;
-        }
-      }
-
-      // Video
-      final videoUrl = (data['videoUrl'] ?? '').toString();
-      VideoPlayerController? controller;
-      if (videoUrl.isNotEmpty) {
-        try {
-          controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-          await controller.initialize();
-        } catch (e) {
-          debugPrint('Existing video preview failed: $e');
-          await controller?.dispose();
-          controller = null;
-        }
-      }
-
-      if (!mounted) {
-        await controller?.dispose();
-        return;
-      }
-
-      setState(() {
-        _images = urls.map(_ImageItem.network).toList();
-        _existingVideoUrl = videoUrl.isNotEmpty ? videoUrl : null;
-        _videoController = controller;
-        _videoDuration = controller?.value.duration;
-        _isLoadingAd = false;
-      });
-    } catch (e) {
-      debugPrint('Load ad error: $e');
-      _failLoad('Unable to load ad. Please try again.');
+    } else if (state is AdFormLoadFailed) {
+      _showSnackBar(state.message, isError: true);
+      Navigator.pop(context);
+    } else if (state is AdFormFailure) {
+      _showSnackBar(state.message, isError: true);
+    } else if (state is AdFormSuccess) {
+      _showSnackBar(
+        state.isEdit ? 'Ad Updated Successfully!' : 'Ad Posted Successfully!',
+        isError: false,
+      );
+      Navigator.pop(context, true);
     }
   }
 
@@ -376,57 +210,18 @@ class _PostAdScreenState extends State<PostAdScreen> {
   @override
   void initState() {
     super.initState();
-
-    if (_isEdit) {
-      _isLoadingAd = true;
-      _loadExistingAd();
-    } else {
-      _restoreDraft();
+    for (final c in _controllers) {
+      c.addListener(_scheduleDraftSave);
     }
-
-    _titleController.addListener(_scheduleDraftSave);
-    _descriptionController.addListener(_scheduleDraftSave);
-    _offerController.addListener(_scheduleDraftSave);
-    _phoneController.addListener(_scheduleDraftSave);
-    _whatsappController.addListener(_scheduleDraftSave);
-
-    _quizQuestionController.addListener(_scheduleDraftSave);
-    _option1Controller.addListener(_scheduleDraftSave);
-    _option2Controller.addListener(_scheduleDraftSave);
-    _option3Controller.addListener(_scheduleDraftSave);
-    _option4Controller.addListener(_scheduleDraftSave);
   }
 
   @override
   void dispose() {
-    _draftSaveTimer?.cancel();
-
-    _titleController.removeListener(_scheduleDraftSave);
-    _descriptionController.removeListener(_scheduleDraftSave);
-    _offerController.removeListener(_scheduleDraftSave);
-    _phoneController.removeListener(_scheduleDraftSave);
-    _whatsappController.removeListener(_scheduleDraftSave);
-
-    _quizQuestionController.removeListener(_scheduleDraftSave);
-    _option1Controller.removeListener(_scheduleDraftSave);
-    _option2Controller.removeListener(_scheduleDraftSave);
-    _option3Controller.removeListener(_scheduleDraftSave);
-    _option4Controller.removeListener(_scheduleDraftSave);
-
-    _phoneController.dispose();
-    _whatsappController.dispose();
-    _titleController.dispose();
-    _descriptionController.dispose();
-    _offerController.dispose();
-
-    _quizQuestionController.dispose();
-    _option1Controller.dispose();
-    _option2Controller.dispose();
-    _option3Controller.dispose();
-    _option4Controller.dispose();
-
+    for (final c in _controllers) {
+      c.removeListener(_scheduleDraftSave);
+      c.dispose();
+    }
     _videoController?.dispose();
-
     super.dispose();
   }
 
@@ -455,7 +250,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
       }
 
       setState(() {
-        _images = files.map(_ImageItem.local).toList();
+        _images = files.map(AdImageItem.local).toList();
       });
       _scheduleDraftSave();
     } catch (e) {
@@ -500,7 +295,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
       setState(() {
         _images = [
           ..._images,
-          ...newFiles.map(_ImageItem.local),
+          ...newFiles.map(AdImageItem.local),
         ];
       });
 
@@ -565,7 +360,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
       if (!mounted || index >= _images.length) return;
 
       setState(() {
-        _images[index] = _ImageItem.local(File(cropped.path));
+        _images[index] = AdImageItem.local(File(cropped.path));
       });
 
       _scheduleDraftSave();
@@ -695,223 +490,6 @@ class _PostAdScreenState extends State<PostAdScreen> {
   }
 
   // ============================================================
-  // LOCATION
-  // ============================================================
-
-  Future<Position?> _getLocation() async {
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return null;
-      }
-
-      if (permission == LocationPermission.whileInUse ||
-          permission == LocationPermission.always) {
-        return await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-      }
-    } catch (e) {
-      debugPrint('Location error: $e');
-    }
-
-    return null;
-  }
-
-  // ============================================================
-  // POST / SAVE AD
-  // ============================================================
-
-  Future<void> _postAd() async {
-    final title = _titleController.text.trim();
-    final description = _descriptionController.text.trim();
-    final phone = _phoneController.text.trim();
-    final whatsapp = _whatsappController.text.trim();
-
-    if (title.isEmpty || description.isEmpty) {
-      _showSnackBar(
-        'Please enter a title and description.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (phone.length != 10) {
-      _showSnackBar(
-        'Please enter a valid 10-digit contact number.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (whatsapp.isNotEmpty && whatsapp.length != 10) {
-      _showSnackBar(
-        'WhatsApp number must be 10 digits (or leave it empty).',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_images.length < _minImages) {
-      _showSnackBar(
-        'Please select at least $_minImages images (up to $_maxImages).',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_images.length > _maxImages) {
-      _showSnackBar(
-        'Please keep it to $_maxImages images or fewer.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_selectedVideo != null &&
-        _videoDuration != null &&
-        _videoDuration! > _maxVideoDuration) {
-      _showSnackBar(
-        'Video must be under ${_maxVideoDuration.inSeconds} seconds — please trim it first.',
-        isError: true,
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-
-      if (currentUser == null) {
-        throw Exception('User is not logged in.');
-      }
-
-      final uid = currentUser.uid;
-
-      // New ads capture the location; edits keep the original one.
-      final Position? position = _isEdit ? null : await _getLocation();
-
-      // ----------------------------------------------------------
-      // IMAGES — keep already-uploaded ones, upload only new ones
-      // ----------------------------------------------------------
-
-      final List<String> imageUrls = [];
-
-      for (final item in _images) {
-        if (item.isNetwork) {
-          imageUrls.add(item.url!);
-        } else {
-          final CloudinaryResponse response = await cloudinary.uploadFile(
-            CloudinaryFile.fromFile(
-              item.file!.path,
-              resourceType: CloudinaryResourceType.Image,
-            ),
-          );
-
-          imageUrls.add(response.secureUrl);
-        }
-      }
-
-      // ----------------------------------------------------------
-      // VIDEO — new upload, or keep existing, or none
-      // ----------------------------------------------------------
-
-      String? videoUrl;
-
-      if (_selectedVideo != null) {
-        final CloudinaryResponse videoResponse = await cloudinary.uploadFile(
-          CloudinaryFile.fromFile(
-            _selectedVideo!.path,
-            resourceType: CloudinaryResourceType.Video,
-          ),
-        );
-
-        videoUrl = videoResponse.secureUrl;
-      } else {
-        videoUrl = _existingVideoUrl;
-      }
-
-      // ----------------------------------------------------------
-      // FIREBASE DATABASE
-      // ----------------------------------------------------------
-
-      final Map<String, Object?> adData = {
-        'title': title,
-        'description': description,
-        'offer': _offerController.text.trim(),
-        'phone': '+91$phone',
-        // Optional — the WhatsApp button only shows when this is set.
-        'whatsapp': whatsapp.isEmpty ? null : '+91$whatsapp',
-        'imageUrls': imageUrls,
-        'videoUrl': videoUrl,
-        'quiz': {
-          'question': _quizQuestionController.text.trim(),
-          'options': [
-            _option1Controller.text.trim(),
-            _option2Controller.text.trim(),
-            _option3Controller.text.trim(),
-            _option4Controller.text.trim(),
-          ],
-          'correctIndex': _correctAnswerIndex,
-        },
-      };
-
-      if (_isEdit) {
-        // update() only touches these fields, so likes, comments, views
-        // and quiz attempts stay as they are.
-        await FirebaseDatabase.instance.ref('ads/${widget.adId}').update({
-          ...adData,
-          'updatedAt': DateTime.now().toIso8601String(),
-        });
-      } else {
-        await FirebaseDatabase.instance.ref('ads').push().set({
-          ...adData,
-          'adminId': uid,
-          'latitude': position?.latitude,
-          'longitude': position?.longitude,
-          'createdAt': DateTime.now().toIso8601String(),
-        });
-
-        // Successfully posted → remove saved draft
-        await _clearDraft();
-      }
-
-      if (!mounted) return;
-
-      _showSnackBar(
-        _isEdit ? 'Ad Updated Successfully!' : 'Ad Posted Successfully!',
-        isError: false,
-      );
-
-      Navigator.pop(context, true);
-    } catch (e) {
-      debugPrint('Post ad error: $e');
-
-      if (mounted) {
-        _showSnackBar(
-          'Error: ${e.toString()}',
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  // ============================================================
   // SNACKBAR
   // ============================================================
 
@@ -999,6 +577,16 @@ class _PostAdScreenState extends State<PostAdScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return BlocConsumer<AdFormBloc, AdFormState>(
+      listener: _onBlocState,
+      builder: _buildForm,
+    );
+  }
+
+  Widget _buildForm(BuildContext context, AdFormState state) {
+    final isLoadingAd = state is AdFormLoading;
+    final isSubmitting = state is AdFormSubmitting;
+
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -1017,7 +605,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
       ),
     );
 
-    if (_isLoadingAd) {
+    if (isLoadingAd) {
       return Scaffold(
         backgroundColor:
         isDark ? theme.scaffoldBackgroundColor : const Color(0xFFF4F5F9),
@@ -1084,7 +672,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _postAd,
+                          onPressed: isSubmitting ? null : _submit,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
@@ -1095,7 +683,7 @@ class _PostAdScreenState extends State<PostAdScreen> {
                               borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                          child: _isLoading
+                          child: isSubmitting
                               ? const SizedBox(
                             width: 22,
                             height: 22,
@@ -1329,7 +917,6 @@ class _PostAdScreenState extends State<PostAdScreen> {
           decoration: _fieldDeco(
             context,
             'WhatsApp Number (Optional)',
-            // FontAwesomeIcons.whatsapp,
             Icons.whatshot,
           ).copyWith(
             prefixText: '+91 ',
@@ -1350,6 +937,53 @@ class _PostAdScreenState extends State<PostAdScreen> {
             ),
           ),
         ),
+
+        // PRODUCT STATUS (edit mode only; new ads start as Available)
+        if (_isEdit) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Product Status',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              ChoiceChip(
+                label: const Text('Available'),
+                selected: _status == ProductStatus.available,
+                showCheckmark: false,
+                selectedColor: const Color(0xFF1D9E75).withOpacity(.18),
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _status == ProductStatus.available
+                      ? const Color(0xFF1D9E75)
+                      : onSurface,
+                ),
+                onSelected: (_) =>
+                    setState(() => _status = ProductStatus.available),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Sold'),
+                selected: _status == ProductStatus.sold,
+                showCheckmark: false,
+                selectedColor: const Color(0xFFE24B4A).withOpacity(.18),
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _status == ProductStatus.sold
+                      ? const Color(0xFFE24B4A)
+                      : onSurface,
+                ),
+                onSelected: (_) =>
+                    setState(() => _status = ProductStatus.sold),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

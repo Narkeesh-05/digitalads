@@ -1,7 +1,9 @@
 // import 'package:flutter/material.dart';
-// import '../admin_dashboard.dart';
-// import '../admin_profile_screen.dart';
-// import '../../../../app/theme.dart';
+// import 'package:provider/provider.dart';
+// import 'admin_dashboard.dart';
+// import 'admin_profile_screen.dart';
+// import '../../../app/theme.dart';
+// import '../../../main.dart';
 //
 // class AdminHomeScreen extends StatefulWidget {
 //   const AdminHomeScreen({super.key});
@@ -26,12 +28,16 @@
 //
 //   @override
 //   Widget build(BuildContext context) {
+//     final isDark = context.watch<ThemeProvider>().isDark;
+//
 //     return Scaffold(
 //       body: _screens[_selectedIndex],
 //       bottomNavigationBar: Container(
 //         decoration: BoxDecoration(
-//           color: Colors.white,
-//           boxShadow: [
+//           color: isDark ? AppColors.darkSurface : Colors.white,
+//           boxShadow: isDark
+//               ? []
+//               : [
 //             BoxShadow(
 //               color: Colors.black.withOpacity(.06),
 //               blurRadius: 12,
@@ -46,11 +52,13 @@
 //               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
 //               children: [
 //                 _navItem(
+//                   isDark: isDark,
 //                   icon: Icons.dashboard_rounded,
 //                   label: 'Dashboard',
 //                   index: 0,
 //                 ),
 //                 _navItem(
+//                   isDark: isDark,
 //                   icon: Icons.person_rounded,
 //                   label: 'Profile',
 //                   index: 1,
@@ -64,11 +72,14 @@
 //   }
 //
 //   Widget _navItem({
+//     required bool isDark,
 //     required IconData icon,
 //     required String label,
 //     required int index,
 //   }) {
 //     final isSelected = _selectedIndex == index;
+//     final unselectedColor =
+//     isDark ? AppColors.darkTextSecondary : Colors.grey.shade500;
 //
 //     return InkWell(
 //       onTap: () => _onItemTapped(index),
@@ -77,7 +88,11 @@
 //         duration: const Duration(milliseconds: 200),
 //         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
 //         decoration: BoxDecoration(
-//           color: isSelected ? AppColors.primarySurface : Colors.transparent,
+//           color: isSelected
+//               ? (isDark
+//               ? AppColors.primary.withOpacity(.18)
+//               : AppColors.primarySurface)
+//               : Colors.transparent,
 //           borderRadius: BorderRadius.circular(14),
 //         ),
 //         child: Column(
@@ -85,7 +100,7 @@
 //           children: [
 //             Icon(
 //               icon,
-//               color: isSelected ? AppColors.primary : Colors.grey.shade500,
+//               color: isSelected ? AppColors.primary : unselectedColor,
 //               size: 24,
 //             ),
 //             const SizedBox(height: 4),
@@ -94,7 +109,7 @@
 //               style: TextStyle(
 //                 fontSize: 11.5,
 //                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-//                 color: isSelected ? AppColors.primary : Colors.grey.shade500,
+//                 color: isSelected ? AppColors.primary : unselectedColor,
 //               ),
 //             ),
 //           ],
@@ -104,91 +119,104 @@
 //   }
 // }
 
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../admin_dashboard.dart';
-import '../admin_profile_screen.dart';
-import '../../../../app/theme.dart';
-import '../../../../main.dart';
 
-class AdminHomeScreen extends StatefulWidget {
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:provider/provider.dart';
+import 'admin_dashboard.dart';
+import 'admin_profile_screen.dart';
+import '../../../app/theme.dart';
+import '../../../main.dart';
+import 'bloc/admin_nav_cubit.dart';
+
+class AdminHomeScreen extends StatelessWidget {
   const AdminHomeScreen({super.key});
 
   @override
-  State<AdminHomeScreen> createState() => _AdminHomeScreenState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (_) => AdminNavCubit(),
+      child: const _AdminHomeView(),
+    );
+  }
 }
 
-class _AdminHomeScreenState extends State<AdminHomeScreen> {
-  int _selectedIndex = 0;
+class _AdminHomeView extends StatelessWidget {
+  const _AdminHomeView();
 
-  final List<Widget> _screens = [
-    const AdminDashboard(),
-    const AdminProfileScreen(),
+  static const List<Widget> _screens = [
+    AdminDashboard(),
+    AdminProfileScreen(),
   ];
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<ThemeProvider>().isDark;
 
-    return Scaffold(
-      body: _screens[_selectedIndex],
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurface : Colors.white,
-          boxShadow: isDark
-              ? []
-              : [
-            BoxShadow(
-              color: Colors.black.withOpacity(.06),
-              blurRadius: 12,
-              offset: const Offset(0, -3),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _navItem(
-                  isDark: isDark,
-                  icon: Icons.dashboard_rounded,
-                  label: 'Dashboard',
-                  index: 0,
-                ),
-                _navItem(
-                  isDark: isDark,
-                  icon: Icons.person_rounded,
-                  label: 'Profile',
-                  index: 1,
+    return BlocBuilder<AdminNavCubit, int>(
+      builder: (context, selectedIndex) {
+        return Scaffold(
+          body: _screens[selectedIndex],
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurface : Colors.white,
+              boxShadow: isDark
+                  ? []
+                  : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, -3),
                 ),
               ],
             ),
+            child: SafeArea(
+              child: Padding(
+                padding:
+                const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _navItem(
+                      context: context,
+                      isDark: isDark,
+                      selectedIndex: selectedIndex,
+                      icon: Icons.dashboard_rounded,
+                      label: 'Dashboard',
+                      index: 0,
+                    ),
+                    _navItem(
+                      context: context,
+                      isDark: isDark,
+                      selectedIndex: selectedIndex,
+                      icon: Icons.person_rounded,
+                      label: 'Profile',
+                      index: 1,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _navItem({
+    required BuildContext context,
     required bool isDark,
+    required int selectedIndex,
     required IconData icon,
     required String label,
     required int index,
   }) {
-    final isSelected = _selectedIndex == index;
+    final isSelected = selectedIndex == index;
     final unselectedColor =
     isDark ? AppColors.darkTextSecondary : Colors.grey.shade500;
 
     return InkWell(
-      onTap: () => _onItemTapped(index),
+      onTap: () => context.read<AdminNavCubit>().select(index),
       borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

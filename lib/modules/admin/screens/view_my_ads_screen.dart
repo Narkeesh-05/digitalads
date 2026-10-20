@@ -1,3 +1,4 @@
+import 'package:digitalads/modules/admin/screens/product_status.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +51,43 @@ class ViewMyAdsScreen extends StatelessWidget {
       context,
       MaterialPageRoute(builder: (_) => PostAdScreen(adId: adId)),
     );
+  }
+
+  Future<void> _toggleStatus(
+      BuildContext context,
+      String adId,
+      bool currentlySold,
+      ) async {
+    final newStatus =
+    currentlySold ? ProductStatus.available : ProductStatus.sold;
+
+    try {
+      await FirebaseDatabase.instance.ref('ads/$adId').update({
+        'status': newStatus,
+        'statusUpdatedAt': DateTime.now().toIso8601String(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              currentlySold ? 'Marked as Available' : 'Marked as Sold',
+            ),
+            backgroundColor: const Color(0xFF1D9E75),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Status update error: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to update status'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -105,6 +143,11 @@ class ViewMyAdsScreen extends StatelessWidget {
                     imageUrls: _extractImageUrls(adsList[index]),
                     isDark: isDark,
                     onEdit: () => _editAd(context, adsList[index]['id'].toString()),
+                    onToggleStatus: () => _toggleStatus(
+                      context,
+                      adsList[index]['id'].toString(),
+                      ProductStatus.isSold(adsList[index]),
+                    ),
                     onDelete: () => _deleteAd(context, adsList[index]['id']),
                   ),
                 );
@@ -126,6 +169,11 @@ class ViewMyAdsScreen extends StatelessWidget {
                   imageUrls: _extractImageUrls(adsList[index]),
                   isDark: isDark,
                   onEdit: () => _editAd(context, adsList[index]['id'].toString()),
+                  onToggleStatus: () => _toggleStatus(
+                    context,
+                    adsList[index]['id'].toString(),
+                    ProductStatus.isSold(adsList[index]),
+                  ),
                   onDelete: () => _deleteAd(context, adsList[index]['id']),
                 ),
               );
@@ -171,6 +219,7 @@ class _AdCard extends StatelessWidget {
   final List<String> imageUrls;
   final bool isDark;
   final VoidCallback onEdit;
+  final VoidCallback onToggleStatus;
   final VoidCallback onDelete;
 
   const _AdCard({
@@ -178,6 +227,7 @@ class _AdCard extends StatelessWidget {
     required this.imageUrls,
     required this.isDark,
     required this.onEdit,
+    required this.onToggleStatus,
     required this.onDelete,
   });
 
@@ -200,6 +250,7 @@ class _AdCard extends StatelessWidget {
     final offer = (ad['offer'] ?? '').toString();
     final createdAt = _formatDate((ad['createdAt'] ?? '').toString());
     final adId = ad['id'].toString();
+    final isSold = ProductStatus.isSold(ad);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -244,6 +295,11 @@ class _AdCard extends StatelessWidget {
                   child: Icon(Icons.image_outlined,
                       size: 44, color: isDark ? AppColors.darkTextSecondary : Colors.grey),
                 ),
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: ProductStatusChip(isSold: isSold),
               ),
               if (imageUrls.length > 1)
                 Positioned(
@@ -331,6 +387,38 @@ class _AdCard extends StatelessWidget {
                           )),
                     ],
                     const Spacer(),
+
+                    // ── Mark sold / available ──
+                    InkWell(
+                      onTap: onToggleStatus,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isSold ? Icons.undo_rounded : Icons.sell_outlined,
+                              size: 16,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isSold ? 'Mark available' : 'Mark sold',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
 
                     // ── Edit ──
                     InkWell(

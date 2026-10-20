@@ -5,7 +5,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/theme.dart';
-import '../../admin/screens/bloc/admin_home_screen.dart';
+import '../../admin/screens/admin_home_screen.dart';
 import '../../super_admin/screens/super_admin_dashboard.dart';
 import 'forgot_password_screen.dart';
 import 'otp_screen.dart';
