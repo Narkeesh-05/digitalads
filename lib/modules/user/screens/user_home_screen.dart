@@ -1,34 +1,61 @@
+
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:digitalads/data/repositories/ad_share_repository.dart';
+import 'package:digitalads/data/repositories/feed_repository.dart';
+import 'package:digitalads/data/services/location_service.dart';
 import 'package:digitalads/modules/user/screens/user_drawer.dart';
 import 'package:digitalads/modules/user/screens/wallet_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../app/theme.dart';
+import '../../../core/ad_links.dart';
 import '../../../main.dart';
 import '../../admin/screens/product_status.dart';
 import 'ad_engagement_screen.dart';
 import 'ad_search_delegate.dart';
+import 'bloc/feed/feed_bloc.dart';
+import 'bloc/feed/feed_event.dart';
+import 'bloc/feed/feed_state.dart';
+import 'bloc/share/ad_share_cubit.dart';
 import 'network_video_player.dart';
-import 'package:carousel_slider/carousel_slider.dart';
 
-import '../../../app/theme.dart';
-import '../../../core/ad_links.dart';
-
-class UserHomeScreen extends StatefulWidget {
+// ════════════════════════════════════════════════════════════════════════
+// USER HOME SCREEN  (Round A: feed + location now handled by FeedBloc)
+// ════════════════════════════════════════════════════════════════════════
+class UserHomeScreen extends StatelessWidget {
   const UserHomeScreen({super.key});
 
   @override
-  State<UserHomeScreen> createState() => _UserHomeScreenState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (ctx) => FeedBloc(
+        repo: ctx.read<FeedRepository>(),
+        location: ctx.read<LocationService>(),
+      )..add(FeedStarted()),
+      child: const _UserHomeView(),
+    );
+  }
 }
 
-class _UserHomeScreenState extends State<UserHomeScreen> {
+class _UserHomeView extends StatefulWidget {
+  const _UserHomeView();
+
+  @override
+  State<_UserHomeView> createState() => _UserHomeViewState();
+}
+
+class _UserHomeViewState extends State<_UserHomeView> {
   // Handles links like https://<host>/ad/<adId>
   static bool _initialLinkHandled = false;
   StreamSubscription<Uri>? _linkSub;
@@ -38,7 +65,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _requestLocationPermission();
     _initDeepLinks();
   }
 
@@ -89,38 +115,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  Future<void> _requestLocationPermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always) {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      String uid = FirebaseAuth.instance.currentUser!.uid;
-      await FirebaseDatabase.instance.ref('users/$uid').update({
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-      });
-    }
-  }
-
-  double _calculateDistance(
-      double lat1,
-      double lon1,
-      double lat2,
-      double lon2,
-      ) {
-    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000;
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<ThemeProvider>().isDark;
@@ -161,118 +155,51 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           ),
         ],
       ),
-      body: StreamBuilder(
-        stream: FirebaseDatabase.instance
-            .ref('users/${FirebaseAuth.instance.currentUser!.uid}')
-            .onValue,
-        builder: (context, userSnapshot) {
-          double? userLat;
-          double? userLng;
+      body: BlocBuilder<FeedBloc, FeedState>(
+        builder: (context, state) {
+          if (state is FeedLoaded) {
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: state.ads.length,
+              itemBuilder: (context, index) {
+                final ad = state.ads[index];
+                final imageUrls = List<String>.from(ad['imageUrls'] as List);
+                final videoUrl = (ad['videoUrl'] ?? '').toString();
+                final hasVideo = videoUrl.isNotEmpty;
 
-          if (userSnapshot.hasData &&
-              userSnapshot.data!.snapshot.value != null) {
-            final userData = Map<String, dynamic>.from(
-              userSnapshot.data!.snapshot.value as Map,
+                return _AdCard(
+                  key: ValueKey(ad['id']),
+                  ad: ad,
+                  imageUrls: imageUrls,
+                  videoUrl: hasVideo ? videoUrl : null,
+                  totalSlides: imageUrls.length + (hasVideo ? 1 : 0),
+                  isDark: isDark,
+                  onEnquire: () => _showEnquiryDialog(context, ad),
+                  onQuiz: () => _showQuizDialog(context, ad),
+                );
+              },
             );
-            userLat = (userData['latitude'] as num?)?.toDouble();
-            userLng = (userData['longitude'] as num?)?.toDouble();
           }
 
-          return StreamBuilder(
-            stream: FirebaseDatabase.instance.ref('ads').onValue,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return _AdListSkeleton(isDark: isDark);
-              }
+          if (state is FeedEmpty) {
+            return _EmptyState(
+              isDark: isDark,
+              icon: Icons.campaign_outlined,
+              message: 'No ads available right now',
+              subtitle: 'Check back later for local deals near you',
+            );
+          }
 
-              if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
-                return _EmptyState(
-                  isDark: isDark,
-                  icon: Icons.campaign_outlined,
-                  message: 'No ads available right now',
-                  subtitle: 'Check back later for local deals near you',
-                );
-              }
+          if (state is FeedError) {
+            return _EmptyState(
+              isDark: isDark,
+              icon: Icons.error_outline_rounded,
+              message: state.message,
+              subtitle: 'Please check your connection and try again',
+            );
+          }
 
-              Map<dynamic, dynamic> adsMap =
-              snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-              List<Map<String, dynamic>> adsList = adsMap.entries.map((e) {
-                final ad = Map<String, dynamic>.from(e.value);
-                ad['id'] = e.key;
-
-                double distance = 999999;
-
-                if (userLat != null &&
-                    userLng != null &&
-                    ad['latitude'] != null &&
-                    ad['longitude'] != null) {
-                  distance = _calculateDistance(
-                    userLat,
-                    userLng,
-                    (ad['latitude'] as num).toDouble(),
-                    (ad['longitude'] as num).toDouble(),
-                  );
-                }
-
-                ad['distance'] = distance;
-
-                return ad;
-              }).toList();
-
-              adsList.sort((a, b) {
-                return (a['distance'] as double).compareTo(
-                  b['distance'] as double,
-                );
-              });
-
-              if (adsList.isEmpty) {
-                return _EmptyState(
-                  isDark: isDark,
-                  icon: Icons.location_off_outlined,
-                  message: 'No ads near your location',
-                  subtitle: 'Try expanding your search area',
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: adsList.length,
-                itemBuilder: (context, index) {
-                  final ad = adsList[index];
-
-                  List<String> imageUrls = [];
-                  if (ad['imageUrls'] != null) {
-                    if (ad['imageUrls'] is List) {
-                      imageUrls = List<String>.from(ad['imageUrls']);
-                    } else if (ad['imageUrls'] is Map) {
-                      imageUrls = Map<dynamic, dynamic>.from(
-                        ad['imageUrls'],
-                      ).values.map((e) => e.toString()).toList();
-                    }
-                  }
-                  if (ad['imageUrl'] != null &&
-                      ad['imageUrl'].toString().isNotEmpty) {
-                    imageUrls.add(ad['imageUrl'].toString());
-                  }
-
-                  String? videoUrl = ad['videoUrl'];
-                  bool hasVideo = videoUrl != null && videoUrl.isNotEmpty;
-                  int totalSlides = imageUrls.length + (hasVideo ? 1 : 0);
-
-                  return _AdCard(
-                    key: ValueKey(ad['id']),
-                    ad: ad,
-                    imageUrls: imageUrls,
-                    videoUrl: hasVideo ? videoUrl : null,
-                    totalSlides: totalSlides,
-                    isDark: isDark,
-                    onEnquire: () => _showEnquiryDialog(context, ad),
-                    onQuiz: () => _showQuizDialog(context, ad),
-                  );
-                },
-              );
-            },
-          );
+          return _AdListSkeleton(isDark: isDark);
         },
       ),
     );
@@ -288,6 +215,28 @@ void _showEnquiryDialog(BuildContext context, Map<String, dynamic> ad) {
   final phoneController = TextEditingController();
   final messageController = TextEditingController();
   final isDark = context.read<ThemeProvider>().isDark;
+
+  InputDecoration deco(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: AppColors.primary),
+      filled: true,
+      fillColor:
+      isDark ? AppColors.darkSurfaceVariant : AppColors.surfaceVariant,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+    );
+  }
+
+  final fieldStyle = TextStyle(
+    color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+  );
 
   showDialog(
     context: context,
@@ -309,97 +258,22 @@ void _showEnquiryDialog(BuildContext context, Map<String, dynamic> ad) {
           children: [
             TextField(
               controller: nameController,
-              style: TextStyle(
-                color: isDark
-                    ? AppColors.darkTextPrimary
-                    : AppColors.textPrimary,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Your Name',
-                prefixIcon: const Icon(
-                  Icons.person_outline_rounded,
-                  color: AppColors.primary,
-                ),
-                filled: true,
-                fillColor: isDark
-                    ? AppColors.darkSurfaceVariant
-                    : AppColors.surfaceVariant,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: AppColors.primary,
-                    width: 1.5,
-                  ),
-                ),
-              ),
+              style: fieldStyle,
+              decoration: deco('Your Name', Icons.person_outline_rounded),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: phoneController,
               keyboardType: TextInputType.phone,
-              style: TextStyle(
-                color: isDark
-                    ? AppColors.darkTextPrimary
-                    : AppColors.textPrimary,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Phone Number',
-                prefixIcon: const Icon(
-                  Icons.phone_outlined,
-                  color: AppColors.primary,
-                ),
-                filled: true,
-                fillColor: isDark
-                    ? AppColors.darkSurfaceVariant
-                    : AppColors.surfaceVariant,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: AppColors.primary,
-                    width: 1.5,
-                  ),
-                ),
-              ),
+              style: fieldStyle,
+              decoration: deco('Phone Number', Icons.phone_outlined),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: messageController,
               maxLines: 3,
-              style: TextStyle(
-                color: isDark
-                    ? AppColors.darkTextPrimary
-                    : AppColors.textPrimary,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Message',
-                prefixIcon: const Icon(
-                  Icons.message_outlined,
-                  color: AppColors.primary,
-                ),
-                filled: true,
-                fillColor: isDark
-                    ? AppColors.darkSurfaceVariant
-                    : AppColors.surfaceVariant,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: AppColors.primary,
-                    width: 1.5,
-                  ),
-                ),
-              ),
+              style: fieldStyle,
+              decoration: deco('Message', Icons.message_outlined),
             ),
           ],
         ),
@@ -463,7 +337,10 @@ void _showEnquiryDialog(BuildContext context, Map<String, dynamic> ad) {
   );
 }
 
-Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) async {
+Future<void> _showQuizDialog(
+    BuildContext context,
+    Map<String, dynamic> ad,
+    ) async {
   final adId = ad['id'];
   final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -540,9 +417,7 @@ Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) asyn
                     border: Border.all(
                       color: selectedIndex == index
                           ? AppColors.primary
-                          : (isDark
-                          ? AppColors.darkBorder
-                          : AppColors.border),
+                          : (isDark ? AppColors.darkBorder : AppColors.border),
                     ),
                   ),
                   child: Row(
@@ -604,14 +479,12 @@ Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) asyn
               }
 
               if (isCorrect) {
-                DatabaseReference pointsRef = FirebaseDatabase
-                    .instance
+                DatabaseReference pointsRef = FirebaseDatabase.instance
                     .ref('users/$userId/points');
 
                 final snapshot = await pointsRef.get();
-                int currentPoints = snapshot.exists
-                    ? (snapshot.value as int)
-                    : 0;
+                int currentPoints =
+                snapshot.exists ? (snapshot.value as int) : 0;
 
                 await pointsRef.set(currentPoints + 10);
 
@@ -619,9 +492,7 @@ Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) asyn
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        '🎉 Correct! You earned 10 points!',
-                      ),
+                      content: Text('🎉 Correct! You earned 10 points!'),
                       backgroundColor: Color(0xFF1D9E75),
                     ),
                   );
@@ -631,7 +502,8 @@ Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) asyn
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('❌ Wrong Answer! Better luck next time!'),
+                      content:
+                      Text('❌ Wrong Answer! Better luck next time!'),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -654,7 +526,6 @@ Future<void> _showQuizDialog(BuildContext context, Map<String, dynamic> ad) asyn
     ),
   );
 }
-
 
 // ════════════════════════════════════════════════════════════════════════
 // AD DETAIL — opened from a shared link (https://<host>/ad/<adId>)
@@ -685,7 +556,8 @@ class _AdDetailScreenState extends State<AdDetailScreen> {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null && ad['latitude'] != null && ad['longitude'] != null) {
-        final userSnap = await FirebaseDatabase.instance.ref('users/$uid').get();
+        final userSnap =
+        await FirebaseDatabase.instance.ref('users/$uid').get();
         if (userSnap.exists && userSnap.value is Map) {
           final user = Map<String, dynamic>.from(userSnap.value as Map);
           final lat = (user['latitude'] as num?)?.toDouble();
@@ -987,7 +859,8 @@ class _AdCardState extends State<_AdCard> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CommentsSheet(adId: widget.ad['id'], isDark: widget.isDark),
+      builder: (_) =>
+          _CommentsSheet(adId: widget.ad['id'], isDark: widget.isDark),
     );
   }
 
@@ -1068,7 +941,8 @@ class _AdCardState extends State<_AdCard> {
                   ),
                   items: [
                     ...widget.imageUrls.map(
-                          (url) => _NetworkImageWithShimmer(url: url, isDark: isDark),
+                          (url) =>
+                          _NetworkImageWithShimmer(url: url, isDark: isDark),
                     ),
                     if (widget.videoUrl != null)
                       NetworkVideoPlayer(videoUrl: widget.videoUrl!),
@@ -1321,8 +1195,9 @@ class _AdCardState extends State<_AdCard> {
                 // ── Like / Comment / Views / Share / WhatsApp row ──────
                 if (adId != null)
                   StreamBuilder<DatabaseEvent>(
-                    stream:
-                    FirebaseDatabase.instance.ref('ads/$adId/likes').onValue,
+                    stream: FirebaseDatabase.instance
+                        .ref('ads/$adId/likes')
+                        .onValue,
                     builder: (context, likeSnap) {
                       int likeCount = 0;
                       bool isLiked = false;
@@ -1374,9 +1249,8 @@ class _AdCardState extends State<_AdCard> {
                                 icon: Icons.chat_bubble_outline_rounded,
                                 color: hintColor,
                                 labelColor: labelColor,
-                                label: commentCount > 0
-                                    ? '$commentCount'
-                                    : '',
+                                label:
+                                commentCount > 0 ? '$commentCount' : '',
                                 onTap: _openComments,
                               );
                             },
@@ -1404,20 +1278,32 @@ class _AdCardState extends State<_AdCard> {
                             },
                           ),
                           const SizedBox(width: 6),
-                          _actionIcon(
-                            icon: Icons.share_outlined,
-                            color: hintColor,
-                            labelColor: labelColor,
-                            label: '',
-                            onTap: _shareAd,
+                          // Share icon + live share count (AdShareCubit)
+                          BlocProvider(
+                            create: (ctx) => AdShareCubit(
+                              adId: adId.toString(),
+                              repo: ctx.read<AdShareRepository>(),
+                            ),
+                            child: BlocBuilder<AdShareCubit, int>(
+                              builder: (context, shareCount) {
+                                return _actionIcon(
+                                  icon: Icons.share_outlined,
+                                  color: hintColor,
+                                  labelColor: labelColor,
+                                  label: shareCount > 0 ? '$shareCount' : '',
+                                  onTap: () {
+                                    context.read<AdShareCubit>().recordShare();
+                                    _shareAd();
+                                  },
+                                );
+                              },
+                            ),
                           ),
-                          // const Spacer(),
                           IconButton(
                             icon: const Icon(Icons.send_rounded),
                             tooltip: 'Enquire Now',
-                            onPressed:widget.onEnquire,
+                            onPressed: widget.onEnquire,
                           ),
-
                           if (_whatsappNumber.isNotEmpty)
                             GestureDetector(
                               onTap: _openWhatsApp,
@@ -1428,14 +1314,13 @@ class _AdCardState extends State<_AdCard> {
                                       .withOpacity(.12),
                                   shape: BoxShape.circle,
                                 ),
-                                child:FaIcon(
+                                child: const FaIcon(
                                   FontAwesomeIcons.whatsapp,
-                                  color: const Color(0xFF25D366), // Placed inside FaIcon
-                                  size: 24.0,                    // Use 'size' (not iconSize)
+                                  color: Color(0xFF25D366),
+                                  size: 24.0,
                                 ),
                               ),
                             ),
-
                         ],
                       );
                     },
@@ -1445,26 +1330,6 @@ class _AdCardState extends State<_AdCard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // ElevatedButton.icon(
-                    //   onPressed: widget.onEnquire,
-                    //   icon: const Icon(Icons.send_rounded, size: 15),
-                    //   label: const Text('Enquire'),
-                    //   style: ElevatedButton.styleFrom(
-                    //     backgroundColor: AppColors.primary,
-                    //     foregroundColor: Colors.white,
-                    //     elevation: 0,
-                    //     padding: const EdgeInsets.symmetric(
-                    //         vertical: 10, horizontal: 23),
-                    //     shape: RoundedRectangleBorder(
-                    //       borderRadius: BorderRadius.circular(10),
-                    //     ),
-                    //     textStyle: const TextStyle(
-                    //       fontSize: 13,
-                    //       fontWeight: FontWeight.w500,
-                    //     ),
-                    //   ),
-                    // ),
-
                     if (ad['quiz'] != null)
                       Builder(
                         builder: (context) {
@@ -1481,7 +1346,8 @@ class _AdCardState extends State<_AdCard> {
                               padding: const EdgeInsets.only(left: 8),
                               child: OutlinedButton.icon(
                                 onPressed: widget.onQuiz,
-                                icon: const Icon(Icons.quiz_outlined, size: 15),
+                                icon:
+                                const Icon(Icons.quiz_outlined, size: 15),
                                 label: const Text('Quiz'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.primary,
@@ -1686,9 +1552,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     super.dispose();
   }
 
-  // ============================================================
-  // POST / UPDATE COMMENT
-  // ============================================================
+  // ── POST / UPDATE COMMENT ────────────────────────────────────────────
 
   Future<void> _postComment() async {
     final text = _commentController.text.trim();
@@ -1709,15 +1573,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     try {
       final uid = currentUser.uid;
 
-      // ----------------------------------------------------------
-      // EDIT EXISTING COMMENT
-      // ----------------------------------------------------------
-
+      // Edit existing comment
       if (_editingCommentId != null) {
         await FirebaseDatabase.instance
-            .ref(
-          'ads/${widget.adId}/comments/$_editingCommentId',
-        )
+            .ref('ads/${widget.adId}/comments/$_editingCommentId')
             .update({
           'text': text,
           'updatedAt': DateTime.now().toIso8601String(),
@@ -1733,24 +1592,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         return;
       }
 
-      // ----------------------------------------------------------
-      // GET USER NAME
-      // ----------------------------------------------------------
-
+      // Get user name
       String userName = 'User';
 
-      final userSnap = await FirebaseDatabase.instance
-          .ref('users/$uid/name')
-          .get();
+      final userSnap =
+      await FirebaseDatabase.instance.ref('users/$uid/name').get();
 
       if (userSnap.exists && userSnap.value != null) {
         userName = userSnap.value.toString();
       }
 
-      // ----------------------------------------------------------
-      // CREATE NEW COMMENT
-      // ----------------------------------------------------------
-
+      // Create new comment
       await FirebaseDatabase.instance
           .ref('ads/${widget.adId}/comments')
           .push()
@@ -1778,14 +1630,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
-  // ============================================================
-  // START EDIT
-  // ============================================================
+  // ── EDIT ─────────────────────────────────────────────────────────────
 
-  void _startEditComment(
-      String commentId,
-      String text,
-      ) {
+  void _startEditComment(String commentId, String text) {
     setState(() {
       _editingCommentId = commentId;
       _commentController.text = text;
@@ -1793,15 +1640,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
     // Cursor at end
     _commentController.selection = TextSelection.fromPosition(
-      TextPosition(
-        offset: _commentController.text.length,
-      ),
+      TextPosition(offset: _commentController.text.length),
     );
   }
-
-  // ============================================================
-  // CANCEL EDIT
-  // ============================================================
 
   void _cancelEdit() {
     setState(() {
@@ -1810,18 +1651,12 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     });
   }
 
-  // ============================================================
-  // DELETE COMMENT
-  // ============================================================
+  // ── DELETE ───────────────────────────────────────────────────────────
 
-  Future<void> _deleteComment(
-      String commentId,
-      ) async {
+  Future<void> _deleteComment(String commentId) async {
     try {
       await FirebaseDatabase.instance
-          .ref(
-        'ads/${widget.adId}/comments/$commentId',
-      )
+          .ref('ads/${widget.adId}/comments/$commentId')
           .remove();
 
       if (_editingCommentId == commentId) {
@@ -1840,28 +1675,19 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
-  // ============================================================
-  // DELETE CONFIRMATION
-  // ============================================================
-
-  Future<void> _confirmDeleteComment(
-      String commentId,
-      ) async {
+  Future<void> _confirmDeleteComment(String commentId) async {
     final isDark = widget.isDark;
 
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: isDark
-              ? AppColors.darkSurface
-              : Colors.white,
+          backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
           title: Text(
             'Delete comment?',
             style: TextStyle(
-              color: isDark
-                  ? AppColors.darkTextPrimary
-                  : AppColors.textPrimary,
+              color:
+              isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1875,9 +1701,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext, false);
-              },
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: Text(
                 'Cancel',
                 style: TextStyle(
@@ -1888,9 +1712,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
               ),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext, true);
-              },
+              onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text(
                 'Delete',
                 style: TextStyle(
@@ -1909,45 +1731,24 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
-  // ============================================================
-  // TIME AGO
-  // ============================================================
+  // ── HELPERS ──────────────────────────────────────────────────────────
 
   String _timeAgo(String raw) {
     try {
       final date = DateTime.parse(raw);
-
       final diff = DateTime.now().difference(date);
 
-      if (diff.inSeconds < 10) {
-        return 'just now';
-      }
-
-      if (diff.inMinutes < 1) {
-        return '${diff.inSeconds}s ago';
-      }
-
-      if (diff.inHours < 1) {
-        return '${diff.inMinutes}m ago';
-      }
-
-      if (diff.inDays < 1) {
-        return '${diff.inHours}h ago';
-      }
-
-      if (diff.inDays < 7) {
-        return '${diff.inDays}d ago';
-      }
+      if (diff.inSeconds < 10) return 'just now';
+      if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
+      if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+      if (diff.inDays < 1) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
 
       return '${date.day}/${date.month}/${date.year}';
     } catch (_) {
       return '';
     }
   }
-
-  // ============================================================
-  // MESSAGE
-  // ============================================================
 
   void _showMessage(
       String message, {
@@ -1960,9 +1761,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: isError
-              ? AppColors.error
-              : AppColors.primary,
+          backgroundColor: isError ? AppColors.error : AppColors.primary,
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
           shape: RoundedRectangleBorder(
@@ -1972,9 +1771,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       );
   }
 
-  // ============================================================
-  // COMMENT ITEM
-  // ============================================================
+  // ── COMMENT ITEM ─────────────────────────────────────────────────────
 
   Widget _buildCommentItem(
       BuildContext context,
@@ -1983,51 +1780,28 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       ) {
     final isDark = widget.isDark;
 
-    final currentUid =
-        FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final commentUserId = (c['userId'] ?? '').toString();
+    final userName = (c['userName'] ?? 'User').toString();
+    final commentText = (c['text'] ?? '').toString();
+    final createdAt = (c['createdAt'] ?? '').toString();
 
-    final commentUserId =
-    (c['userId'] ?? '').toString();
+    final isMyComment = currentUid != null && currentUid == commentUserId;
 
-    final userName =
-    (c['userName'] ?? 'User').toString();
-
-    final commentText =
-    (c['text'] ?? '').toString();
-
-    final createdAt =
-    (c['createdAt'] ?? '').toString();
-
-    // ----------------------------------------------------------
-    // CHECK CURRENT USER'S COMMENT
-    // ----------------------------------------------------------
-
-    final isMyComment =
-        currentUid != null &&
-            currentUid == commentUserId;
+    final primaryText =
+    isDark ? AppColors.darkTextPrimary : AppColors.textPrimary;
 
     return Padding(
-      padding: const EdgeInsets.only(
-        bottom: 16,
-      ),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ------------------------------------------------------
-          // AVATAR
-          // ------------------------------------------------------
-
+          // Avatar
           CircleAvatar(
             radius: 16,
-            backgroundColor:
-            AppColors.primarySurface,
+            backgroundColor: AppColors.primarySurface,
             child: Text(
-              userName.isNotEmpty
-                  ? userName
-                  .substring(0, 1)
-                  .toUpperCase()
-                  : 'U',
+              userName.isNotEmpty ? userName.substring(0, 1).toUpperCase() : 'U',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
@@ -2038,61 +1812,45 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
           const SizedBox(width: 10),
 
-          // ------------------------------------------------------
-          // COMMENT CONTENT
-          // ------------------------------------------------------
-
+          // Content
           Expanded(
             child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ------------------------------------------------
-                // NAME + TIME + MENU
-                // ------------------------------------------------
-
+                // Name + time + menu
                 Row(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Flexible(
-                      child: Text(
-                        userName,
-                        maxLines: 1,
-                        overflow:
-                        TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight:
-                          FontWeight.w700,
-                          color: isDark
-                              ? AppColors
-                              .darkTextPrimary
-                              : AppColors
-                              .textPrimary,
-                        ),
+                    // Expanded (instead of a fixed-width SizedBox) so the menu
+                    // button always sits at the right edge on any screen size.
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              userName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: primaryText,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _timeAgo(createdAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark
+                                  ? AppColors.darkTextSecondary
+                                  : Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-
-                    const SizedBox(width: 6),
-
-                    Text(
-                      _timeAgo(createdAt),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark
-                            ? AppColors
-                            .darkTextSecondary
-                            : Colors.grey.shade500,
-                      ),
-                    ),
-
-                    // const Spacer(),
-                    SizedBox(width: 200,)
-                    ,                    // ------------------------------------------------
-                    // EDIT / DELETE
-                    // ------------------------------------------------
-
                     if (isMyComment)
                       PopupMenuButton<String>(
                         padding: EdgeInsets.zero,
@@ -2100,26 +1858,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         icon: Icon(
                           Icons.more_horiz_rounded,
                           color: isDark
-                              ? AppColors
-                              .darkTextSecondary
-                              : AppColors
-                              .textHint,
+                              ? AppColors.darkTextSecondary
+                              : AppColors.textHint,
                         ),
-                        color: isDark
-                            ? AppColors.darkSurfaceVariant
-                            : Colors.white,
+                        color:
+                        isDark ? AppColors.darkSurfaceVariant : Colors.white,
                         onSelected: (value) {
                           if (value == 'edit') {
-                            _startEditComment(
-                              commentId,
-                              commentText,
-                            );
+                            _startEditComment(commentId, commentText);
                           }
-
                           if (value == 'delete') {
-                            _confirmDeleteComment(
-                              commentId,
-                            );
+                            _confirmDeleteComment(commentId);
                           }
                         },
                         itemBuilder: (context) {
@@ -2129,51 +1878,31 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                               child: Row(
                                 children: [
                                   Icon(
-                                    Icons
-                                        .edit_outlined,
+                                    Icons.edit_outlined,
                                     size: 19,
-                                    color: isDark
-                                        ? AppColors
-                                        .darkTextPrimary
-                                        : AppColors
-                                        .textPrimary,
+                                    color: primaryText,
                                   ),
-                                  const SizedBox(
-                                    width: 10,
-                                  ),
+                                  const SizedBox(width: 10),
                                   Text(
                                     'Edit',
-                                    style: TextStyle(
-                                      color: isDark
-                                          ? AppColors
-                                          .darkTextPrimary
-                                          : AppColors
-                                          .textPrimary,
-                                    ),
+                                    style: TextStyle(color: primaryText),
                                   ),
                                 ],
                               ),
                             ),
-                            PopupMenuItem<String>(
+                            const PopupMenuItem<String>(
                               value: 'delete',
-                              child: const Row(
+                              child: Row(
                                 children: [
                                   Icon(
-                                    Icons
-                                        .delete_outline_rounded,
+                                    Icons.delete_outline_rounded,
                                     size: 19,
-                                    color:
-                                    AppColors.error,
+                                    color: AppColors.error,
                                   ),
-                                  SizedBox(
-                                    width: 10,
-                                  ),
+                                  SizedBox(width: 10),
                                   Text(
                                     'Delete',
-                                    style: TextStyle(
-                                      color:
-                                      AppColors.error,
-                                    ),
+                                    style: TextStyle(color: AppColors.error),
                                   ),
                                 ],
                               ),
@@ -2186,39 +1915,26 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
                 const SizedBox(height: 3),
 
-                // ------------------------------------------------
-                // COMMENT TEXT
-                // ------------------------------------------------
-
+                // Comment text
                 Text(
                   commentText,
                   style: TextStyle(
                     fontSize: 13,
-                    color: isDark
-                        ? AppColors.darkTextPrimary
-                        : AppColors.textPrimary,
+                    color: primaryText,
                     height: 1.3,
                   ),
                 ),
 
-                // ------------------------------------------------
-                // EDITING INDICATOR
-                // ------------------------------------------------
-
+                // Editing indicator
                 if (_editingCommentId == commentId)
-                  Padding(
-                    padding:
-                    const EdgeInsets.only(
-                      top: 4,
-                    ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
                     child: Text(
                       'Editing...',
                       style: TextStyle(
                         fontSize: 10,
-                        color:
-                        AppColors.primary,
-                        fontWeight:
-                        FontWeight.w600,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -2230,9 +1946,18 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     );
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
+  Widget _emptyComments(bool isDark) {
+    return Center(
+      child: Text(
+        'No comments yet — be the first!',
+        style: TextStyle(
+          color: isDark ? AppColors.darkTextSecondary : Colors.grey.shade500,
+        ),
+      ),
+    );
+  }
+
+  // ── BUILD ────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -2243,46 +1968,31 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       minChildSize: 0.4,
       maxChildSize: 0.9,
       expand: false,
-      builder: (
-          context,
-          scrollController,
-          ) {
+      builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
-            color: isDark
-                ? AppColors.darkSurface
-                : Colors.white,
-            borderRadius:
-            const BorderRadius.vertical(
+            color: isDark ? AppColors.darkSurface : Colors.white,
+            borderRadius: const BorderRadius.vertical(
               top: Radius.circular(24),
             ),
           ),
           child: Column(
             children: [
-              // ==================================================
-              // HANDLE
-              // ==================================================
-
+              // Handle
               const SizedBox(height: 10),
 
               Container(
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkBorder
-                      : Colors.grey.shade300,
-                  borderRadius:
-                  BorderRadius.circular(4),
+                  color: isDark ? AppColors.darkBorder : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
 
               const SizedBox(height: 14),
 
-              // ==================================================
-              // TITLE
-              // ==================================================
-
+              // Title
               Text(
                 'Comments',
                 style: TextStyle(
@@ -2296,34 +2006,20 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
               Divider(
                 height: 20,
-                color: isDark
-                    ? AppColors.darkBorder
-                    : AppColors.divider,
+                color: isDark ? AppColors.darkBorder : AppColors.divider,
               ),
 
-              // ==================================================
-              // COMMENTS LIST
-              // ==================================================
-
+              // Comments list
               Expanded(
                 child: StreamBuilder<DatabaseEvent>(
-                  stream: FirebaseDatabase
-                      .instance
-                      .ref(
-                    'ads/${widget.adId}/comments',
-                  )
+                  stream: FirebaseDatabase.instance
+                      .ref('ads/${widget.adId}/comments')
                       .onValue,
-                  builder: (
-                      context,
-                      snapshot,
-                      ) {
-                    if (snapshot.connectionState ==
-                        ConnectionState.waiting) {
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(
-                        child:
-                        CircularProgressIndicator(
-                          color:
-                          AppColors.primary,
+                        child: CircularProgressIndicator(
+                          color: AppColors.primary,
                           strokeWidth: 2,
                         ),
                       );
@@ -2335,127 +2031,59 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           'Unable to load comments',
                           style: TextStyle(
                             color: isDark
-                                ? AppColors
-                                .darkTextSecondary
-                                : AppColors
-                                .textSecondary,
+                                ? AppColors.darkTextSecondary
+                                : AppColors.textSecondary,
                           ),
                         ),
                       );
                     }
 
                     if (!snapshot.hasData ||
-                        snapshot.data!.snapshot.value ==
-                            null) {
-                      return Center(
-                        child: Text(
-                          'No comments yet — be the first!',
-                          style: TextStyle(
-                            color: isDark
-                                ? AppColors
-                                .darkTextSecondary
-                                : Colors
-                                .grey
-                                .shade500,
-                          ),
-                        ),
-                      );
+                        snapshot.data!.snapshot.value == null) {
+                      return _emptyComments(isDark);
                     }
 
-                    final rawValue =
-                        snapshot.data!.snapshot.value;
+                    final rawValue = snapshot.data!.snapshot.value;
 
                     if (rawValue is! Map) {
-                      return Center(
-                        child: Text(
-                          'No comments yet — be the first!',
-                          style: TextStyle(
-                            color: isDark
-                                ? AppColors
-                                .darkTextSecondary
-                                : Colors
-                                .grey
-                                .shade500,
-                          ),
-                        ),
-                      );
+                      return _emptyComments(isDark);
                     }
 
-                    // ------------------------------------------------
-                    // KEEP COMMENT ID
-                    // ------------------------------------------------
+                    // Keep comment id
+                    final comments = <Map<String, dynamic>>[];
 
-                    final comments =
-                    <Map<String, dynamic>>[];
-
-                    for (final entry
-                    in rawValue.entries) {
+                    for (final entry in rawValue.entries) {
                       final value = entry.value;
 
                       if (value is Map) {
                         comments.add({
-                          'commentId':
-                          entry.key.toString(),
-                          ...Map<String, dynamic>.from(
-                            value,
-                          ),
+                          'commentId': entry.key.toString(),
+                          ...Map<String, dynamic>.from(value),
                         });
                       }
                     }
 
-                    // ------------------------------------------------
-                    // NEWEST FIRST
-                    // ------------------------------------------------
-
-                    comments.sort(
-                          (a, b) {
-                        return (b['createdAt'] ?? '')
-                            .toString()
-                            .compareTo(
-                          (a['createdAt'] ?? '')
-                              .toString(),
-                        );
-                      },
-                    );
+                    // Newest first
+                    comments.sort((a, b) {
+                      return (b['createdAt'] ?? '')
+                          .toString()
+                          .compareTo((a['createdAt'] ?? '').toString());
+                    });
 
                     if (comments.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'No comments yet — be the first!',
-                          style: TextStyle(
-                            color: isDark
-                                ? AppColors
-                                .darkTextSecondary
-                                : Colors
-                                .grey
-                                .shade500,
-                          ),
-                        ),
-                      );
+                      return _emptyComments(isDark);
                     }
 
-                    // ------------------------------------------------
-                    // LIST
-                    // ------------------------------------------------
-
                     return ListView.builder(
-                      controller:
-                      scrollController,
-                      padding:
-                      const EdgeInsets.symmetric(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 8,
                       ),
-                      itemCount:
-                      comments.length,
-                      itemBuilder:
-                          (context, index) {
-                        final comment =
-                        comments[index];
-
-                        final commentId =
-                        comment['commentId']
-                            .toString();
+                      itemCount: comments.length,
+                      itemBuilder: (context, index) {
+                        final comment = comments[index];
+                        final commentId = comment['commentId'].toString();
 
                         return _buildCommentItem(
                           context,
@@ -2468,23 +2096,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                 ),
               ),
 
-              // ==================================================
-              // EDITING BAR
-              // ==================================================
-
+              // Editing bar
               if (_editingCommentId != null)
                 Container(
                   width: double.infinity,
-                  padding:
-                  const EdgeInsets.symmetric(
+                  padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 6,
                   ),
                   color: isDark
-                      ? AppColors
-                      .darkSurfaceVariant
-                      : AppColors
-                      .surfaceVariant,
+                      ? AppColors.darkSurfaceVariant
+                      : AppColors.surfaceVariant,
                   child: Row(
                     children: [
                       const Icon(
@@ -2498,10 +2120,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           'Editing comment',
                           style: TextStyle(
                             fontSize: 12,
-                            color:
-                            AppColors.primary,
-                            fontWeight:
-                            FontWeight.w600,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -2511,10 +2131,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           'Cancel',
                           style: TextStyle(
                             color: isDark
-                                ? AppColors
-                                .darkTextSecondary
-                                : AppColors
-                                .textSecondary,
+                                ? AppColors.darkTextSecondary
+                                : AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -2522,28 +2140,17 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                   ),
                 ),
 
-              // ==================================================
-              // COMMENT INPUT
-              // ==================================================
-
+              // Comment input
               SafeArea(
                 top: false,
                 child: Padding(
-                  padding:
-                  const EdgeInsets.fromLTRB(
-                    12,
-                    8,
-                    12,
-                    12,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                   child: Row(
                     children: [
                       Expanded(
                         child: TextField(
-                          controller:
-                          _commentController,
-                          textInputAction:
-                          TextInputAction.send,
+                          controller: _commentController,
+                          textInputAction: TextInputAction.send,
                           onSubmitted: (_) {
                             if (!_isSending) {
                               _postComment();
@@ -2551,64 +2158,38 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           },
                           style: TextStyle(
                             color: isDark
-                                ? AppColors
-                                .darkTextPrimary
-                                : AppColors
-                                .textPrimary,
+                                ? AppColors.darkTextPrimary
+                                : AppColors.textPrimary,
                           ),
-                          decoration:
-                          InputDecoration(
-                            hintText:
-                            _editingCommentId !=
-                                null
+                          decoration: InputDecoration(
+                            hintText: _editingCommentId != null
                                 ? 'Edit your comment...'
                                 : 'Add a comment...',
-                            hintStyle:
-                            TextStyle(
+                            hintStyle: TextStyle(
                               color: isDark
-                                  ? AppColors
-                                  .darkTextSecondary
-                                  : AppColors
-                                  .textHint,
+                                  ? AppColors.darkTextSecondary
+                                  : AppColors.textHint,
                             ),
                             filled: true,
                             fillColor: isDark
-                                ? AppColors
-                                .darkSurfaceVariant
-                                : AppColors
-                                .surfaceVariant,
-                            contentPadding:
-                            const EdgeInsets
-                                .symmetric(
+                                ? AppColors.darkSurfaceVariant
+                                : AppColors.surfaceVariant,
+                            contentPadding: const EdgeInsets.symmetric(
                               horizontal: 14,
                               vertical: 10,
                             ),
-                            border:
-                            OutlineInputBorder(
-                              borderRadius:
-                              BorderRadius
-                                  .circular(24),
-                              borderSide:
-                              BorderSide.none,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
                             ),
-                            enabledBorder:
-                            OutlineInputBorder(
-                              borderRadius:
-                              BorderRadius
-                                  .circular(24),
-                              borderSide:
-                              BorderSide.none,
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
                             ),
-                            focusedBorder:
-                            OutlineInputBorder(
-                              borderRadius:
-                              BorderRadius
-                                  .circular(24),
-                              borderSide:
-                              const BorderSide(
-                                color:
-                                AppColors
-                                    .primary,
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: const BorderSide(
+                                color: AppColors.primary,
                                 width: 1,
                               ),
                             ),
@@ -2618,49 +2199,31 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
                       const SizedBox(width: 8),
 
-                      // ==================================================
-                      // SEND / UPDATE BUTTON
-                      // ==================================================
-
+                      // Send / update button
                       _isSending
                           ? const Padding(
-                        padding:
-                        EdgeInsets.all(
-                          10,
-                        ),
+                        padding: EdgeInsets.all(10),
                         child: SizedBox(
                           width: 20,
                           height: 20,
-                          child:
-                          CircularProgressIndicator(
+                          child: CircularProgressIndicator(
                             strokeWidth: 2.2,
-                            color:
-                            AppColors
-                                .primary,
+                            color: AppColors.primary,
                           ),
                         ),
                       )
                           : Container(
-                        decoration:
-                        const BoxDecoration(
-                          color:
-                          AppColors
-                              .primary,
-                          shape:
-                          BoxShape.circle,
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
                         ),
                         child: IconButton(
-                          onPressed:
-                          _postComment,
+                          onPressed: _postComment,
                           icon: Icon(
-                            _editingCommentId !=
-                                null
-                                ? Icons
-                                .check_rounded
-                                : Icons
-                                .send_rounded,
-                            color:
-                            Colors.white,
+                            _editingCommentId != null
+                                ? Icons.check_rounded
+                                : Icons.send_rounded,
+                            color: Colors.white,
                             size: 20,
                           ),
                         ),
@@ -2676,6 +2239,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     );
   }
 }
+
 // ════════════════════════════════════════════════════════════════════════
 // NETWORK IMAGE — with blur/shimmer loading (YouTube style)
 // ════════════════════════════════════════════════════════════════════════
@@ -2778,6 +2342,9 @@ class _AdListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final barColor =
+    isDark ? AppColors.darkSurfaceVariant : AppColors.surfaceVariant;
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 3,
@@ -2796,7 +2363,8 @@ class _AdListSkeleton extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(16)),
                 child: SizedBox(height: 220, child: _ShimmerBox(isDark: isDark)),
               ),
               Padding(
@@ -2808,9 +2376,7 @@ class _AdListSkeleton extends StatelessWidget {
                       width: 160,
                       height: 16,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkSurfaceVariant
-                            : AppColors.surfaceVariant,
+                        color: barColor,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -2819,9 +2385,7 @@ class _AdListSkeleton extends StatelessWidget {
                       width: double.infinity,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkSurfaceVariant
-                            : AppColors.surfaceVariant,
+                        color: barColor,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -2830,9 +2394,7 @@ class _AdListSkeleton extends StatelessWidget {
                       width: 220,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkSurfaceVariant
-                            : AppColors.surfaceVariant,
+                        color: barColor,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
